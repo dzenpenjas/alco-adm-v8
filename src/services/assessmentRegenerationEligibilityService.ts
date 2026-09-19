@@ -116,28 +116,25 @@ export class AssessmentRegenerationEligibilityService {
       case 'ITEM_PROMPT':
       case 'OPTIONS':
       case 'STIMULUS':
-        targetId = finding.instrumentItemId;
-        break;
       case 'PROPOSED_ANSWER':
-        targetId = finding.instrumentItemId || finding.id;
-        break;
+      case 'SCORING_GUIDE':
       case 'RUBRIC':
-        targetId = finding.instrumentItemId || finding.id;
+        targetId = finding.instrumentItemId;
         break;
       case 'TASK':
       case 'EVIDENCE_REQUIREMENT':
       case 'OBSERVATION_CONTENT':
         targetId = finding.instrumentId;
         break;
-      case 'SCORING_GUIDE':
-        targetId = finding.instrumentItemId || finding.id;
+      case 'COVERAGE_UNIT':
+        targetId = finding.coverageUnitId;
         break;
       default:
-        targetId = finding.instrumentItemId;
+        targetId = undefined;
         break;
     }
 
-    if (!targetId || targetId.trim() === '') {
+    if (!targetId || typeof targetId !== 'string' || targetId.trim() === '') {
       return { eligible: false, reason: 'MISSING_EXACT_IDENTITY' };
     }
 
