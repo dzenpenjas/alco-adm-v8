@@ -98,12 +98,12 @@ export function resolveAvailableScopes(
     });
   }
 
-  return availableTps.map((tpItem, index) => {
+  return availableTps.map((tpItem) => {
     return {
       id: tpItem.id,
       type: 'SINGLE_TP',
-      title: `[${tpItem.code || `TP ${index + 1}`}] ${tpItem.statement}`,
-      tpCode: tpItem.code,
+      title: tpItem.code ? `[${tpItem.code}] ${tpItem.statement}` : tpItem.statement,
+      tpCode: tpItem.code || undefined,
       tpItem: tpItem,
       linkedTpIds: [tpItem.id],
       linkedAtpItemIds: [],
@@ -1337,9 +1337,13 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
                             Langkah {scope.stepNumber}
                           </span>
                         )}
-                        {scope.tpCode && (
+                        {scope.tpCode ? (
                           <span className="px-2 py-0.5 text-xs font-semibold bg-slate-100 text-slate-700 rounded-md">
                             {scope.tpCode}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-500 rounded-md italic">
+                            Tanpa kode
                           </span>
                         )}
                         {scope.jp && (

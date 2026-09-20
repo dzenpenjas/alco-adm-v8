@@ -6,10 +6,8 @@ import dotenv from 'dotenv';
 import { OfficialEducationDataProvider } from './server/schoolProvider';
 import {
   fallbackAnalyzeCP,
-  fallbackGenerateTP,
   fallbackGenerateATP,
   fallbackRefineText,
-  fallbackGenerateLearningPlan,
 } from './server/curriculumFallback';
 
 dotenv.config();
@@ -228,6 +226,27 @@ Berikan output dalam format JSON dengan struktur:
   res.json({ success: true, data: fallback, engine: 'pedagogical_engine' });
 });
 
+// Runtime validator for AI TP response
+function validateAITPPayload(data: any): { isValid: boolean; reason?: string } {
+  if (!Array.isArray(data)) {
+    return { isValid: false, reason: 'Payload AI bukan berupa array' };
+  }
+  if (data.length === 0) {
+    return { isValid: false, reason: 'Hasil perumusan AI TP kosong' };
+  }
+  for (let i = 0; i < data.length; i++) {
+    const item = data[i];
+    if (!item || typeof item !== 'object') {
+      return { isValid: false, reason: `Butir TP ke-${i + 1} bukan berupa objek valid` };
+    }
+    const statement = item.statement || item.description;
+    if (!statement || typeof statement !== 'string' || statement.trim() === '') {
+      return { isValid: false, reason: `Rumusan TP ke-${i + 1} kosong atau tidak valid` };
+    }
+  }
+  return { isValid: true };
+}
+
 // 2. Endpoint: AI Generate TP from CP
 app.post('/api/ai/generate-tp', async (req, res) => {
   const { cpGeneral, cpElements, cpAnalysis, subject, grade, phase, curriculum, count = 4 } = req.body || {};
@@ -236,10 +255,12 @@ app.post('/api/ai/generate-tp', async (req, res) => {
     return res.status(400).json({ error: 'Capaian Pembelajaran (CP) harus diisi terlebih dahulu' });
   }
 
-  // If GEMINI_API_KEY is configured, try Gemini AI first
-  if (process.env.GEMINI_API_KEY) {
-    try {
-      const prompt = `Anda adalah ahli perancangan kurikulum pendidikan nasional Indonesia.
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(503).json({ error: 'Layanan AI belum dikonfigurasi (GEMINI_API_KEY tidak terpasang).' });
+  }
+
+  try {
+    const prompt = `Anda adalah ahli perancangan kurikulum pendidikan nasional Indonesia.
 Tugas Anda adalah merumuskan Tujuan Pembelajaran (TP) yang diturunkan SECARA KETAT dan EKSPLISIT dari Capaian Pembelajaran (CP) dan Hasil Analisis CP yang diberikan di bawah ini.
 
 PERINGATAN PENTING:
@@ -249,8 +270,8 @@ PERINGATAN PENTING:
 - Jangan membuat TP yang menyimpang dari CP yang tersimpan.
 
 DATA PEMBELAJARAN:
-- Mata Pelajaran: ${subject || 'Bahasa Indonesia'}
-- Tingkat: ${grade || 'Kelas 4'} (${phase || 'Fase B'})
+- Mata Pelajaran: ${subject || ''}
+- Tingkat: ${grade || ''} (${phase || ''})
 - Kurikulum: ${curriculum || 'Kurikulum Merdeka'}
 - Deskripsi CP Umum: ${cpGeneral || '-'}
 - Elemen-Elemen CP:
@@ -269,44 +290,45 @@ ${cpAnalysis.map((a: any, idx: number) => `${idx + 1}. [Elemen: ${a.elementName 
 Buatlah sekitar ${count} hingga 6 butir Tujuan Pembelajaran (TP) yang sistematis.
 Kembalikan respon dalam format JSON sesuai schema:`;
 
-      const response = await generateContentWithRetry({
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                code: { type: Type.STRING, description: 'Kode TP misal TP 4.1, TP 4.2' },
-                elementName: { type: Type.STRING, description: 'Nama Elemen CP yang menjadi rujukan' },
-                statement: { type: Type.STRING, description: 'Rumusan kalimat Tujuan Pembelajaran lengkap' },
-                competence: { type: Type.STRING, description: 'Kata Kerja Operasional / Kompetensi utama' },
-                contentScope: { type: Type.STRING, description: 'Lingkup Materi / Topik Pembelajaran' },
-                p3Dimensions: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                  description: 'Dimensi Profil Pelajar Pancasila yang diasah (1-3 dimensi)',
-                },
+    const response = await generateContentWithRetry({
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              code: { type: Type.STRING, description: 'Kode TP misal TP 4.1, TP 4.2' },
+              elementName: { type: Type.STRING, description: 'Nama Elemen CP yang menjadi rujukan' },
+              statement: { type: Type.STRING, description: 'Rumusan kalimat Tujuan Pembelajaran lengkap' },
+              competence: { type: Type.STRING, description: 'Kata Kerja Operasional / Kompetensi utama' },
+              contentScope: { type: Type.STRING, description: 'Lingkup Materi / Topik Pembelajaran' },
+              p3Dimensions: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: 'Dimensi Profil Pelajar Pancasila yang diasah (1-3 dimensi)',
               },
-              required: ['code', 'elementName', 'statement', 'competence', 'contentScope', 'p3Dimensions'],
             },
+            required: ['code', 'elementName', 'statement', 'competence', 'contentScope', 'p3Dimensions'],
           },
         },
-      });
+      },
+    });
 
-      const parsed = cleanAndParseJSON(response.text, null);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return res.json({ success: true, items: parsed, engine: 'gemini' });
-      }
-    } catch (error: unknown) {
-      console.warn('Gemini TP generation failed or unconfigured, using pedagogical fallback engine:', error);
+    const parsed = cleanAndParseJSON(response.text, null);
+    const validation = validateAITPPayload(parsed);
+
+    if (!validation.isValid) {
+      console.warn('Gemini generate TP output invalid:', validation.reason);
+      return res.status(500).json({ error: `Respons AI tidak memenuhi kualifikasi struktur TP: ${validation.reason}` });
     }
-  }
 
-  // Pedagogical Rule Engine fallback
-  const fallbackItems = fallbackGenerateTP({ cpGeneral, cpElements, subject, grade, phase, curriculum, count });
-  res.json({ success: true, items: fallbackItems, engine: 'pedagogical_engine' });
+    return res.json({ success: true, items: parsed, engine: 'gemini' });
+  } catch (error: any) {
+    console.error('Gemini generate TP failed:', error);
+    return res.status(500).json({ error: `Gagal merumuskan AI TP: ${error.message || 'Respons provider AI tidak dapat diproses'}` });
+  }
 });
 
 // 3. Endpoint: AI Generate ATP from TP
