@@ -22,17 +22,14 @@ export interface AssessmentExportEligibilityResult {
   revision?: number;
 }
 
-export interface AssessmentDocumentSnapshot extends DocumentSnapshot {
+export type AssessmentSnapshotMode = 'CANONICAL_PACKAGE' | 'BLANK_TEMPLATE';
+
+export interface BaseAssessmentDocumentSnapshot extends DocumentSnapshot {
   snapshotId: string;
+  mode: AssessmentSnapshotMode;
   documentType: 'ASESMEN';
-  documentDate: string; // ISO string or YYYY-MM-DD
+  documentDate?: string; // ISO string or YYYY-MM-DD
   formattedDocumentDate: string; // e.g. "Jakarta, 20 September 2026"
-  assessmentPlanId?: string;
-  assessmentPlanTitle?: string;
-  assessmentPackageId: string;
-  assessmentPackageRevision: number;
-  packageTitle: string;
-  packageReviewReason?: string;
   blueprintItems: AssessmentBlueprintItem[];
   instruments: AssessmentInstrument[];
   answerKeys: AssessmentAnswerKey[];
@@ -43,6 +40,32 @@ export interface AssessmentDocumentSnapshot extends DocumentSnapshot {
   documentMode: DocumentMode;
   generatedAt: string;
 }
+
+export interface CanonicalAssessmentDocumentSnapshot extends BaseAssessmentDocumentSnapshot {
+  mode: 'CANONICAL_PACKAGE';
+  documentDate: string;
+  assessmentPlanId?: string;
+  assessmentPlanTitle?: string;
+  assessmentPackageId: string;
+  assessmentPackageRevision: number;
+  packageTitle: string;
+  packageReviewReason?: string;
+}
+
+export interface BlankAssessmentDocumentSnapshot extends BaseAssessmentDocumentSnapshot {
+  mode: 'BLANK_TEMPLATE';
+  documentDate?: string;
+  assessmentPlanId?: undefined;
+  assessmentPlanTitle?: undefined;
+  assessmentPackageId?: undefined;
+  assessmentPackageRevision?: undefined;
+  packageTitle?: undefined;
+  packageReviewReason?: undefined;
+}
+
+export type AssessmentDocumentSnapshot =
+  | CanonicalAssessmentDocumentSnapshot
+  | BlankAssessmentDocumentSnapshot;
 
 export interface NormalizedAssessmentKisiKisiRow {
   no: number;
@@ -146,11 +169,12 @@ export interface NormalizedAssessmentDocument {
     semester: string;
     teacherName: string;
     teacherNip?: string;
-    packageId: string;
-    packageRevision: number;
-    documentDate: string;
+    packageId?: string;
+    packageRevision?: number;
+    documentDate?: string;
     formattedDocumentDate: string;
     isBlankMode: boolean;
+    mode: AssessmentSnapshotMode;
   };
   kisiKisi: {
     title: string;

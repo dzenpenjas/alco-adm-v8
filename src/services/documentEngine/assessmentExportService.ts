@@ -60,25 +60,36 @@ export function formatDocumentDate(
   location?: string
 ): { rawDate: string; formattedDate: string } {
   if (!dateInput) {
-    const now = new Date();
-    const loc = location ? `${location}, ` : '';
-    const day = now.getDate();
-    const month = INDONESIAN_MONTHS[now.getMonth()];
-    const year = now.getFullYear();
     return {
-      rawDate: now.toISOString().split('T')[0],
-      formattedDate: `${loc}${day} ${month} ${year}`,
+      rawDate: '',
+      formattedDate: '',
     };
   }
 
-  if (typeof dateInput === 'string' && INDONESIAN_MONTHS.some((m) => dateInput.includes(m))) {
-    return {
-      rawDate: dateInput,
-      formattedDate: dateInput,
-    };
+  const loc = location ? `${location}, ` : '';
+
+  if (typeof dateInput === 'string') {
+    if (INDONESIAN_MONTHS.some((m) => dateInput.includes(m))) {
+      return {
+        rawDate: dateInput,
+        formattedDate: dateInput,
+      };
+    }
+
+    const match = dateInput.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const monthIdx = parseInt(match[2], 10) - 1;
+      const day = parseInt(match[3], 10);
+      const month = INDONESIAN_MONTHS[monthIdx] || match[2];
+      return {
+        rawDate: `${match[1]}-${match[2]}-${match[3]}`,
+        formattedDate: `${loc}${day} ${month} ${year}`,
+      };
+    }
   }
 
-  const d = new Date(dateInput);
+  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
   if (isNaN(d.getTime())) {
     return {
       rawDate: String(dateInput),
@@ -86,12 +97,11 @@ export function formatDocumentDate(
     };
   }
 
-  const loc = location ? `${location}, ` : '';
   const day = d.getDate();
   const month = INDONESIAN_MONTHS[d.getMonth()];
   const year = d.getFullYear();
   return {
-    rawDate: typeof dateInput === 'string' ? dateInput : d.toISOString().split('T')[0],
+    rawDate: d.toISOString().split('T')[0],
     formattedDate: `${loc}${day} ${month} ${year}`,
   };
 }
@@ -225,41 +235,73 @@ export function createAssessmentDocumentSnapshot(
 ): AssessmentDocumentSnapshot {
   const isBlankMode = (options?.documentMode || context.documentMode) === 'blank';
 
-  let pkg: AssessmentPackage;
-  if (isBlankMode && (!context.assessmentPackages || context.assessmentPackages.length === 0)) {
-    // Blank template mode
-    pkg = {
-      id: 'blank-package',
-      assessmentPlanId: 'blank-plan',
-      academicSettingId: context.academicSetting?.id || 'setting',
-      title: 'Perangkat Asesmen Pembelajaran',
+  const school = context.school || ({} as SchoolData);
+  const profile = context.profile || ({} as TeacherProfile);
+  const academicSetting = context.academicSetting || ({} as AcademicSetting);
+
+  const location =
+    school.district?.replace(/^Kec\.\s*/i, '') || school.regency || school.village || '';
+
+  if (isBlankMode) {
+    const rawDate = options?.documentDate || context.documentDate;
+    const dateResult = rawDate ? formatDocumentDate(rawDate, location) : { rawDate: '', formattedDate: '' };
+
+    const snapshot: AssessmentDocumentSnapshot = {
+      snapshotId: `snap-asmt-blank-${Date.now()}`,
+      mode: 'BLANK_TEMPLATE',
+      documentType: 'ASESMEN',
+      documentDate: dateResult.rawDate || undefined,
+      formattedDocumentDate: dateResult.formattedDate || '',
+      schoolName: school.name || '',
+      npsn: school.npsn,
+      schoolNpsn: school.npsn,
+      schoolAddress: school.address,
+      schoolVillage: school.village,
+      schoolDistrict: school.district,
+      schoolRegency: school.regency,
+      schoolProvince: school.province,
+      principalName: school.principalName || '',
+      principalNip: school.principalNip,
+      principalSource: school.principalSource,
+      teacherName: profile.name || '',
+      teacherNip: profile.nip,
+      teacherStatus: profile.status,
+      academicYear: academicSetting.academicYear || '',
+      semester: academicSetting.semester || '',
+      grade: academicSetting.grade || '',
+      subject: academicSetting.subject || '',
+      phase: academicSetting.phase,
+      curriculum: academicSetting.curriculum || '',
+      curriculumType: academicSetting.curriculumType,
+      documentMode: 'blank',
+      studentCount: context.students?.length,
+      studentNames: context.students?.map((s) => s.name),
+      generatedAt: new Date().toISOString(),
       blueprintItems: [],
       instruments: [],
       answerKeys: [],
       scoringGuides: [],
       rubrics: [],
-      workflowStatus: 'SIAP',
-      revision: 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      resolvedObjectives: {},
     };
-  } else {
-    const eligibility = checkAssessmentExportEligibility(context);
-    if (!eligibility.eligible || !eligibility.package) {
-      throw new Error(
-        `Gagal membuat snapshot asesmen: ${eligibility.blockers.join('; ')}`
-      );
-    }
-    pkg = eligibility.package;
+
+    return snapshot;
   }
 
-  const school = context.school;
-  const profile = context.profile;
-  const academicSetting = context.academicSetting;
+  const eligibility = checkAssessmentExportEligibility(context);
+  if (!eligibility.eligible || !eligibility.package) {
+    throw new Error(
+      `Gagal membuat snapshot asesmen: ${eligibility.blockers.join('; ')}`
+    );
+  }
+  const pkg = eligibility.package;
 
   const rawDate = options?.documentDate || context.documentDate;
-  const location =
-    school.district?.replace(/^Kec\.\s*/i, '') || school.regency || school.village || '';
+  if (!rawDate) {
+    throw new Error(
+      'Gagal membuat snapshot asesmen: Tanggal dokumen (documentDate) wajib ditentukan untuk ekspor dokumen resmi.'
+    );
+  }
   const dateResult = formatDocumentDate(rawDate, location);
 
   // Freeze TP lookup
@@ -284,6 +326,7 @@ export function createAssessmentDocumentSnapshot(
 
   const snapshot: AssessmentDocumentSnapshot = {
     snapshotId: `snap-asmt-${pkg.id}-r${pkg.revision || 1}-${Date.now()}`,
+    mode: 'CANONICAL_PACKAGE',
     documentType: 'ASESMEN',
     documentDate: dateResult.rawDate,
     formattedDocumentDate: dateResult.formattedDate,
@@ -312,7 +355,7 @@ export function createAssessmentDocumentSnapshot(
     grade: academicSetting.grade || '',
     subject: academicSetting.subject || '',
     phase: academicSetting.phase,
-    curriculum: academicSetting.curriculum,
+    curriculum: academicSetting.curriculum || '',
     curriculumType: academicSetting.curriculumType,
     documentMode: options?.documentMode || context.documentMode || 'data',
     studentCount: context.students?.length,
@@ -323,7 +366,7 @@ export function createAssessmentDocumentSnapshot(
     answerKeys: JSON.parse(JSON.stringify(pkg.answerKeys || [])),
     scoringGuides: JSON.parse(JSON.stringify(pkg.scoringGuides || [])),
     rubrics: JSON.parse(JSON.stringify(pkg.rubrics || [])),
-    resolvedObjectives,
+    resolvedObjectives: JSON.parse(JSON.stringify(resolvedObjectives)),
   };
 
   return snapshot;
@@ -336,16 +379,16 @@ export function createAssessmentDocumentSnapshot(
 export function buildNormalizedAssessmentDocumentModel(
   snapshot: AssessmentDocumentSnapshot
 ): NormalizedAssessmentDocument {
-  const isBlank = snapshot.documentMode === 'blank';
+  const isBlank = snapshot.documentMode === 'blank' || snapshot.mode === 'BLANK_TEMPLATE';
 
   // 1. Metadata
   const metadata = {
     title: 'PERANGKAT ASESMEN PEMBELAJARAN',
-    subTitle: snapshot.packageTitle || 'Paket Instrumen dan Rubrik Asesmen',
+    subTitle: snapshot.packageTitle || (isBlank ? 'Format Instrumen dan Rubrik Asesmen' : 'Paket Instrumen dan Rubrik Asesmen'),
     schoolName: snapshot.schoolName,
     npsn: snapshot.npsn,
     schoolAddress: snapshot.schoolAddress,
-    curriculum: snapshot.curriculum || 'Kurikulum Merdeka',
+    curriculum: snapshot.curriculum || '',
     subject: snapshot.subject,
     grade: snapshot.grade,
     phase: snapshot.phase,
@@ -358,6 +401,7 @@ export function buildNormalizedAssessmentDocumentModel(
     documentDate: snapshot.documentDate,
     formattedDocumentDate: snapshot.formattedDocumentDate,
     isBlankMode: isBlank,
+    mode: snapshot.mode,
   };
 
   // 2. Kisi-Kisi / Blueprint
@@ -621,8 +665,8 @@ export async function renderAssessmentDocx(
     district: '',
     regency: '',
     province: '',
-    principalName: '',
-    principalNip: '',
+    principalName: model.signoff.principalName || '',
+    principalNip: model.signoff.principalNip || '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -630,8 +674,8 @@ export async function renderAssessmentDocx(
   const profileWrapper: TeacherProfile = {
     id: 'profile',
     schoolId: 'school',
-    name: model.metadata.teacherName,
-    nip: model.metadata.teacherNip || '',
+    name: model.signoff.teacherName || model.metadata.teacherName || '',
+    nip: model.signoff.teacherNip || model.metadata.teacherNip || '',
     status: 'PNS',
     defaultSubject: model.metadata.subject,
     defaultLevel: 'SMP',
@@ -655,15 +699,20 @@ export async function renderAssessmentDocx(
 
   const docChildren: any[] = [];
 
+  const extraIdentityRows: [string, string][] = [];
+  if (!isBlank && model.metadata.packageRevision !== undefined) {
+    extraIdentityRows.push(['Nomor Revisi Paket', `: Revisi ${model.metadata.packageRevision}`]);
+  }
+  if (model.metadata.formattedDocumentDate) {
+    extraIdentityRows.push(['Tanggal Dokumen', `: ${model.metadata.formattedDocumentDate}`]);
+  }
+
   // Header & Identity
   docChildren.push(
     ...createDocumentHeader(model.metadata.title, model.metadata.subTitle)
   );
   docChildren.push(
-    createIdentityMetadataTable(schoolWrapper, profileWrapper, academicWrapper, [
-      ['Nomor Revisi Paket', `: Revisi ${model.metadata.packageRevision}`],
-      ['Tanggal Dokumen', `: ${model.metadata.formattedDocumentDate}`],
-    ])
+    createIdentityMetadataTable(schoolWrapper, profileWrapper, academicWrapper, extraIdentityRows)
   );
   docChildren.push(new Paragraph({ spacing: { after: 240 } }));
 
@@ -1200,8 +1249,8 @@ export function renderAssessmentPdf(model: NormalizedAssessmentDocument): Blob {
     district: '',
     regency: '',
     province: '',
-    principalName: '',
-    principalNip: '',
+    principalName: model.signoff.principalName || '',
+    principalNip: model.signoff.principalNip || '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -1209,8 +1258,8 @@ export function renderAssessmentPdf(model: NormalizedAssessmentDocument): Blob {
   const profileWrapper: TeacherProfile = {
     id: 'profile',
     schoolId: 'school',
-    name: model.metadata.teacherName,
-    nip: model.metadata.teacherNip || '',
+    name: model.signoff.teacherName || model.metadata.teacherName || '',
+    nip: model.signoff.teacherNip || model.metadata.teacherNip || '',
     status: 'PNS',
     defaultSubject: model.metadata.subject,
     defaultLevel: 'SMP',
@@ -1231,6 +1280,14 @@ export function renderAssessmentPdf(model: NormalizedAssessmentDocument): Blob {
     semester: (model.metadata.semester || '1 (Ganjil)') as any,
     updatedAt: new Date().toISOString(),
   };
+
+  const extraIdentityRows: [string, string][] = [];
+  if (!isBlank && model.metadata.packageRevision !== undefined) {
+    extraIdentityRows.push(['Nomor Revisi', `: Revisi ${model.metadata.packageRevision}`]);
+  }
+  if (model.metadata.formattedDocumentDate) {
+    extraIdentityRows.push(['Tanggal Dokumen', `: ${model.metadata.formattedDocumentDate}`]);
+  }
 
   const sections: PdfDocumentSection[] = [];
 
@@ -1512,10 +1569,7 @@ export function renderAssessmentPdf(model: NormalizedAssessmentDocument): Blob {
 
   const builder = new PdfDocumentBuilder('portrait');
   builder.renderHeader(model.metadata.title, model.metadata.subTitle);
-  builder.renderIdentityBlock(schoolWrapper, profileWrapper, academicWrapper, [
-    ['Nomor Revisi', `: Revisi ${model.metadata.packageRevision}`],
-    ['Tanggal Dokumen', `: ${model.metadata.formattedDocumentDate}`],
-  ]);
+  builder.renderIdentityBlock(schoolWrapper, profileWrapper, academicWrapper, extraIdentityRows);
 
   for (const sec of sections) {
     if (sec.type === 'heading') {
@@ -1544,6 +1598,25 @@ export function renderAssessmentPdf(model: NormalizedAssessmentDocument): Blob {
 }
 
 /**
+ * Generates an official, deterministic filename for exported assessment documents.
+ */
+export function generateAssessmentDocumentFileName(
+  snapshot: AssessmentDocumentSnapshot,
+  extension: 'docx' | 'pdf'
+): string {
+  const cleanSubject = (snapshot.subject || 'Asesmen').replace(/[^a-zA-Z0-9]/g, '_');
+  const cleanGrade = (snapshot.grade || '').replace(/[^a-zA-Z0-9]/g, '');
+  const gradeSuffix = cleanGrade ? `_Kelas_${cleanGrade}` : '';
+
+  if (snapshot.mode === 'BLANK_TEMPLATE' || snapshot.documentMode === 'blank') {
+    return `Format_Asesmen_${cleanSubject}${gradeSuffix}_Template.${extension}`;
+  }
+
+  const rev = snapshot.assessmentPackageRevision ?? 1;
+  return `Perangkat_Asesmen_${cleanSubject}${gradeSuffix}_Rev${rev}.${extension}`;
+}
+
+/**
  * Unified DOCX assessment export orchestrator.
  */
 export async function exportAssessmentDocx(
@@ -1553,10 +1626,7 @@ export async function exportAssessmentDocx(
   const snapshot = createAssessmentDocumentSnapshot(context, options);
   const model = buildNormalizedAssessmentDocumentModel(snapshot);
   const blob = await renderAssessmentDocx(model);
-
-  const cleanSubject = (snapshot.subject || 'Asesmen').replace(/[^a-zA-Z0-9]/g, '_');
-  const cleanGrade = (snapshot.grade || '').replace(/[^a-zA-Z0-9]/g, '');
-  const fileName = `Perangkat_Asesmen_${cleanSubject}_Kelas${cleanGrade}_rev${snapshot.assessmentPackageRevision}.docx`;
+  const fileName = generateAssessmentDocumentFileName(snapshot, 'docx');
 
   return {
     blob,
@@ -1576,10 +1646,7 @@ export async function exportAssessmentPdf(
   const snapshot = createAssessmentDocumentSnapshot(context, options);
   const model = buildNormalizedAssessmentDocumentModel(snapshot);
   const blob = renderAssessmentPdf(model);
-
-  const cleanSubject = (snapshot.subject || 'Asesmen').replace(/[^a-zA-Z0-9]/g, '_');
-  const cleanGrade = (snapshot.grade || '').replace(/[^a-zA-Z0-9]/g, '');
-  const fileName = `Perangkat_Asesmen_${cleanSubject}_Kelas${cleanGrade}_rev${snapshot.assessmentPackageRevision}.pdf`;
+  const fileName = generateAssessmentDocumentFileName(snapshot, 'pdf');
 
   return {
     blob,

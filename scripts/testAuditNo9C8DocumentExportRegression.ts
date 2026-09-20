@@ -5,6 +5,10 @@ import {
   SchoolData,
   TeacherProfile,
   TPData,
+  AssessmentInstrument,
+  AssessmentAnswerKey,
+  AssessmentScoringGuide,
+  AssessmentRubric,
 } from '../src/types';
 import { DocumentGenerationContext } from '../src/services/documentEngine/types';
 import {
@@ -15,6 +19,7 @@ import {
   exportAssessmentPdf,
   renderAssessmentDocx,
   renderAssessmentPdf,
+  formatDocumentDate,
 } from '../src/services/documentEngine/assessmentExportService';
 
 function assert(condition: boolean, message: string) {
@@ -98,6 +103,14 @@ const mockTP: TPData = {
       contentScope: 'Struktur Kontrol',
       order: 2,
     },
+    {
+      id: 'tp-3',
+      code: 'TP 10.3',
+      statement: 'Merancang proyek aplikasi sederhana',
+      competence: 'Merancang',
+      contentScope: 'Proyek',
+      order: 3,
+    },
   ],
   updatedAt: '2026-01-01T00:00:00Z',
 };
@@ -109,7 +122,7 @@ const mockPlan: AssessmentPlan = {
   purpose: 'SUMMATIVE',
   timing: 'POST',
   scopeType: 'TP',
-  tpIds: ['tp-1', 'tp-2'],
+  tpIds: ['tp-1', 'tp-2', 'tp-3'],
   criterionIds: [],
   workflowStatus: 'SIAP',
   instruments: [{ id: 'pi-1', type: 'WRITTEN_TEST', label: 'Tes Tertulis' }],
@@ -236,6 +249,7 @@ async function runAudit9C8Regression() {
       tp: mockTP,
       assessmentPlans: [mockPlan],
       assessmentPackages: [draftPackage],
+      documentDate: '2026-09-20',
     };
 
     const res = checkAssessmentExportEligibility(context);
@@ -259,6 +273,7 @@ async function runAudit9C8Regression() {
       tp: mockTP,
       assessmentPlans: [mockPlan],
       assessmentPackages: [reviewNeededPackage],
+      documentDate: '2026-09-20',
     };
 
     const res = checkAssessmentExportEligibility(context);
@@ -275,6 +290,7 @@ async function runAudit9C8Regression() {
       tp: mockTP,
       assessmentPlans: [mockPlan],
       assessmentPackages: [],
+      documentDate: '2026-09-20',
     };
 
     const res = checkAssessmentExportEligibility(context);
@@ -283,7 +299,7 @@ async function runAudit9C8Regression() {
   });
 
   // Test 4: NO FIRST MATCH rule for ambiguous multiple SIAP packages
-  await test('9C.8.4 — Ambiguous multiple SIAP packages are blocked if activeAssessmentPackageId is not specified', () => {
+  await test('9C.8.4 — Ambiguous multiple SIAP packages are blocked if activeAssessmentPackageId is not specified (NO FIRST MATCH)', () => {
     const pkg1: AssessmentPackage = { ...mockValidSiapPackage, id: 'pkg-1', title: 'Paket 1' };
     const pkg2: AssessmentPackage = { ...mockValidSiapPackage, id: 'pkg-2', title: 'Paket 2' };
 
@@ -294,6 +310,7 @@ async function runAudit9C8Regression() {
       tp: mockTP,
       assessmentPlans: [mockPlan],
       assessmentPackages: [pkg1, pkg2],
+      documentDate: '2026-09-20',
     };
 
     const res = checkAssessmentExportEligibility(context);
@@ -314,18 +331,16 @@ async function runAudit9C8Regression() {
       assessmentPlans: [mockPlan],
       assessmentPackages: [pkg1, pkg2],
       activeAssessmentPackageId: 'pkg-2',
+      documentDate: '2026-09-20',
     };
 
     const res = checkAssessmentExportEligibility(context);
-    if (!res.eligible) {
-      console.log('Test 5 blockers:', res.blockers);
-    }
     assert(res.eligible, 'Must be eligible with explicit valid ID');
     assert(res.package?.id === 'pkg-2', 'Must resolve pkg-2 exactly');
   });
 
-  // Test 6: Snapshot creation produces frozen, immutable snapshot with hash
-  await test('9C.8.6 — Snapshot creation produces immutable snapshot containing metadata and SHA/Hash', () => {
+  // Test 6: Canonical snapshot captures package identity and revision and detached semantic content
+  await test('9C.8.6 — Canonical snapshot captures package identity, revision and detached semantic content', () => {
     const context: DocumentGenerationContext = {
       school: mockSchool,
       profile: mockProfile,
@@ -333,9 +348,11 @@ async function runAudit9C8Regression() {
       tp: mockTP,
       assessmentPlans: [mockPlan],
       assessmentPackages: [mockValidSiapPackage],
+      documentDate: '2026-09-20',
     };
 
     const snapshot = createAssessmentDocumentSnapshot(context);
+    assert(snapshot.mode === 'CANONICAL_PACKAGE', 'Snapshot mode must be CANONICAL_PACKAGE');
     assert(snapshot.assessmentPackageId === 'pkg-siap-1', 'Snapshot assessmentPackageId must match');
     assert(snapshot.assessmentPackageRevision === 2, 'Snapshot revision must match');
     assert(snapshot.blueprintItems.length === 2, 'Snapshot blueprint items must match');
@@ -343,8 +360,98 @@ async function runAudit9C8Regression() {
     assert(snapshot.resolvedObjectives['tp-1'] !== undefined, 'Snapshot must freeze resolved objectives');
   });
 
-  // Test 7: Normalized document model builds accurately from snapshot
-  await test('9C.8.7 — Normalized document model creates deterministic structure for sibling renderers', () => {
+  // Test 7: Package revision is strictly stored and tracked in snapshot
+  await test('9C.8.7 — Package revision is strictly stored and tracked in snapshot', () => {
+    const rev4Package: AssessmentPackage = {
+      ...mockValidSiapPackage,
+      revision: 4,
+    };
+
+    const context: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [rev4Package],
+      documentDate: '2026-09-20',
+    };
+
+    const snapshot = createAssessmentDocumentSnapshot(context);
+    assert(snapshot.assessmentPackageRevision === 4, 'Snapshot must record exact revision 4');
+  });
+
+  // Test 8: Snapshot isolation: mutating live context after snapshot creation does NOT mutate snapshot
+  await test('9C.8.8 — Snapshot isolation: modifying live package, school, profile, academicSetting after snapshot does NOT mutate snapshot', () => {
+    const livePkg: AssessmentPackage = JSON.parse(JSON.stringify(mockValidSiapPackage));
+    const liveSchool: SchoolData = JSON.parse(JSON.stringify(mockSchool));
+    const liveProfile: TeacherProfile = JSON.parse(JSON.stringify(mockProfile));
+    const liveAcademic: AcademicSetting = JSON.parse(JSON.stringify(mockAcademicSetting));
+
+    const context: DocumentGenerationContext = {
+      school: liveSchool,
+      profile: liveProfile,
+      academicSetting: liveAcademic,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [livePkg],
+      documentDate: '2026-09-20',
+    };
+
+    const snapshot = createAssessmentDocumentSnapshot(context);
+
+    // Mutate live objects
+    livePkg.title = 'MUTATED TITLE';
+    livePkg.blueprintItems[0].assessmentIndicator = 'MUTATED INDICATOR';
+    (livePkg.instruments[0] as any).items[0].prompt = 'MUTATED PROMPT';
+    liveSchool.name = 'MUTATED SCHOOL';
+    liveProfile.name = 'MUTATED TEACHER';
+    liveAcademic.subject = 'MUTATED SUBJECT';
+
+    // Verify snapshot retains original frozen values
+    assert(snapshot.packageTitle === 'Perangkat Asesmen Sumatif Informatika Kelas 10', 'Snapshot packageTitle must be immune to live mutation');
+    assert(snapshot.blueprintItems[0].assessmentIndicator === 'Peserta didik dapat mendefinisikan konsep variabel dan tipe data.', 'Blueprint items must be immune to live mutation');
+    assert((snapshot.instruments[0] as any).items[0].prompt === 'Tipe data yang digunakan untuk menyimpan nilai logika benar/salah adalah...', 'Instruments must be immune to live mutation');
+    assert(snapshot.schoolName === 'SMA Negeri 1 Nusantara', 'School name must be immune to live mutation');
+    assert(snapshot.teacherName === 'Budi Santoso, S.Pd.', 'Teacher name must be immune to live mutation');
+    assert(snapshot.subject === 'Informatika', 'Subject must be immune to live mutation');
+  });
+
+  // Test 9: Revision traceability: Revision N snapshot vs Revision N+1 snapshot have distinct revisions
+  await test('9C.8.9 — Revision traceability: Revision N snapshot vs Revision N+1 snapshot have distinct revisions and snapshot IDs', () => {
+    const pkgRev3: AssessmentPackage = { ...mockValidSiapPackage, revision: 3 };
+    const pkgRev4: AssessmentPackage = { ...mockValidSiapPackage, revision: 4 };
+
+    const snap3 = createAssessmentDocumentSnapshot({
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [pkgRev3],
+      documentDate: '2026-09-20',
+    });
+
+    const snap4 = createAssessmentDocumentSnapshot({
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [pkgRev4],
+      documentDate: '2026-09-20',
+    });
+
+    assert(snap3.assessmentPackageRevision === 3, 'Snap3 must be revision 3');
+    assert(snap4.assessmentPackageRevision === 4, 'Snap4 must be revision 4');
+    assert(snap3.snapshotId !== snap4.snapshotId, 'Snapshot IDs must be distinct across revisions');
+    assert(snap3.snapshotId.includes('-r3-'), 'Snapshot ID 3 must embed revision 3');
+    assert(snap4.snapshotId.includes('-r4-'), 'Snapshot ID 4 must embed revision 4');
+  });
+
+  // Test 10: Future documentDate (e.g. 2030-01-15) is preserved exactly
+  await test('9C.8.10 — Future documentDate (e.g. 2030-01-15) is strictly preserved without reverting to new Date()', () => {
+    const futureDate = '2030-01-15';
     const context: DocumentGenerationContext = {
       school: mockSchool,
       profile: mockProfile,
@@ -352,58 +459,356 @@ async function runAudit9C8Regression() {
       tp: mockTP,
       assessmentPlans: [mockPlan],
       assessmentPackages: [mockValidSiapPackage],
+      documentDate: futureDate,
+    };
+
+    const snapshot = createAssessmentDocumentSnapshot(context);
+    assert(snapshot.documentDate === '2030-01-15', 'Raw documentDate must be 2030-01-15');
+    assert(snapshot.formattedDocumentDate.includes('2030'), 'Formatted date must include year 2030');
+    assert(snapshot.formattedDocumentDate.includes('15 Januari 2030'), 'Formatted date must be 15 Januari 2030');
+  });
+
+  // Test 11: Missing documentDate in canonical mode is blocked, while blank template allows empty documentDate
+  await test('9C.8.11 — Missing documentDate in canonical mode throws error, while blank template allows empty documentDate', () => {
+    const canonicalContextWithoutDate: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [mockValidSiapPackage],
+      documentDate: undefined,
+    };
+
+    let canonicalThrew = false;
+    try {
+      createAssessmentDocumentSnapshot(canonicalContextWithoutDate);
+    } catch (err: any) {
+      canonicalThrew = true;
+      assert(err.message.includes('documentDate'), 'Must report missing documentDate error');
+    }
+    assert(canonicalThrew, 'Canonical snapshot creation must throw when documentDate is missing');
+
+    const blankContextWithoutDate: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      documentMode: 'blank',
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [],
+      documentDate: undefined,
+    };
+
+    const blankSnap = createAssessmentDocumentSnapshot(blankContextWithoutDate);
+    assert(blankSnap.mode === 'BLANK_TEMPLATE', 'Blank snapshot mode must be BLANK_TEMPLATE');
+    assert(blankSnap.documentDate === undefined || blankSnap.documentDate === '', 'Blank snapshot documentDate can be empty');
+  });
+
+  // Test 12: Missing curriculum does NOT inject fake 'Kurikulum Merdeka' fallback
+  await test('9C.8.12 — Missing curriculum leaves field empty and does NOT inject fake "Kurikulum Merdeka" fallback', () => {
+    const settingWithoutCurriculum: AcademicSetting = {
+      ...mockAcademicSetting,
+      curriculum: '' as any,
+    };
+
+    const context: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: settingWithoutCurriculum,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [mockValidSiapPackage],
+      documentDate: '2026-09-20',
+    };
+
+    const snapshot = createAssessmentDocumentSnapshot(context);
+    const model = buildNormalizedAssessmentDocumentModel(snapshot);
+    assert(snapshot.curriculum === '', 'Snapshot curriculum must not default to fake Kurikulum Merdeka');
+    assert(model.metadata.curriculum === '', 'Model curriculum must not default to fake Kurikulum Merdeka');
+  });
+
+  // Test 13: No fake school/principal/NIP data is injected
+  await test('9C.8.13 — No fake data: empty school/principal/NIP data is preserved as empty without fake placeholders', () => {
+    const emptySchool: SchoolData = {
+      id: 'school-empty',
+      name: '',
+      npsn: '',
+      address: '',
+      village: '',
+      district: '',
+      regency: '',
+      province: '',
+      principalName: '',
+      principalNip: '',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    };
+
+    const emptyProfile: TeacherProfile = {
+      id: 'teacher-empty',
+      schoolId: 'school-empty',
+      name: '',
+      nip: '',
+      status: 'Guru Tidak Tetap (GTT) / Honorer',
+      defaultSubject: 'Informatika',
+      defaultLevel: 'SMA',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    };
+
+    const context: DocumentGenerationContext = {
+      school: emptySchool,
+      profile: emptyProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [mockValidSiapPackage],
+      documentDate: '2026-09-20',
     };
 
     const snapshot = createAssessmentDocumentSnapshot(context);
     const model = buildNormalizedAssessmentDocumentModel(snapshot);
 
-    assert(model.metadata.subTitle === mockValidSiapPackage.title, 'Model subTitle must match package title');
-    assert(model.kisiKisi.rows.length === 2, 'Kisi-kisi rows must match');
-    assert(model.instruments.list.length === 1, 'Instruments must match');
-    assert(model.instruments.list[0].writtenItems?.length === 2, 'Written items must match');
-    assert(model.answerKeys.list.length === 2, 'Answer keys must match');
-    assert(model.scoringGuides.list.length === 2, 'Scoring guides must match');
-    assert(model.signoff.teacherName === mockProfile.name, 'Signoff teacher name must match');
+    assert(snapshot.schoolName === '', 'School name must be empty string');
+    assert(snapshot.principalName === '', 'Principal name must be empty string');
+    assert(snapshot.principalNip === '', 'Principal NIP must be empty string');
+    assert(model.signoff.principalName === '', 'Signoff principal name must be empty string');
+    assert(model.signoff.teacherName === '', 'Signoff teacher name must be empty string');
   });
 
-  // Test 8: DOCX Renderer produces valid Blob
-  await test('9C.8.8 — DOCX renderer generates non-empty Blob and fileName from normalized model', async () => {
+  // Test 14: Multi-instrument preservation
+  await test('9C.8.14 — Multi-instrument preservation: WRITTEN_TEST, PERFORMANCE, OBSERVATION, ASSIGNMENT, PROJECT, PRODUCT, PORTFOLIO, ORAL_TEST, SELF_ASSESSMENT all preserved in normalized model', () => {
+    const multiPlan: AssessmentPlan = {
+      id: 'plan-multi',
+      academicSettingId: 'setting-1',
+      title: 'Rencana Asesmen Multi-Instrumen',
+      purpose: 'SUMMATIVE',
+      timing: 'POST',
+      scopeType: 'TP',
+      tpIds: ['tp-1', 'tp-2', 'tp-3'],
+      criterionIds: [],
+      workflowStatus: 'SIAP',
+      instruments: [
+        { id: 'pi-1', type: 'WRITTEN_TEST', label: 'Tes Tertulis' },
+        { id: 'pi-2', type: 'PERFORMANCE', label: 'Kinerja' },
+        { id: 'pi-3', type: 'OBSERVATION', label: 'Observasi' },
+        { id: 'pi-4', type: 'ASSIGNMENT', label: 'Penugasan' },
+        { id: 'pi-5', type: 'PROJECT', label: 'Proyek' },
+        { id: 'pi-6', type: 'PRODUCT', label: 'Produk' },
+        { id: 'pi-7', type: 'PORTFOLIO', label: 'Portofolio' },
+        { id: 'pi-8', type: 'ORAL_TEST', label: 'Tes Lisan' },
+        { id: 'pi-9', type: 'SELF_ASSESSMENT', label: 'Penilaian Diri' },
+      ],
+      revision: 1,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    };
+
+    const multiInstruments: AssessmentInstrument[] = [
+      {
+        id: 'inst-written',
+        type: 'WRITTEN_TEST',
+        title: 'Tes Tertulis',
+        instructions: 'Kerjakan soal tertulis',
+        items: [
+          {
+            id: 'wi-1',
+            blueprintItemId: 'bp-multi-1',
+            itemType: 'MULTIPLE_CHOICE',
+            prompt: 'Soal 1',
+            options: [
+              { id: 'opt-1', label: 'A', text: 'Pilihan A' },
+              { id: 'opt-2', label: 'B', text: 'Pilihan B', isCorrect: true },
+            ],
+            order: 1,
+          },
+        ],
+      },
+      {
+        id: 'inst-perf',
+        type: 'PERFORMANCE',
+        title: 'Penilaian Kinerja',
+        task: 'Demonstrasikan pembuatan algoritma sorting',
+        aspects: [{ id: 'asp-1', label: 'Ketepatan Logika', description: 'Logika sorting benar' }],
+      },
+      {
+        id: 'inst-obs',
+        type: 'OBSERVATION',
+        title: 'Lembar Observasi',
+        aspects: [{ id: 'asp-obs', label: 'Kerjasama Kelompok', indicator: 'Aktif berdiskusi' }],
+        recordingScheme: 'CHECKLIST',
+      },
+      {
+        id: 'inst-assign',
+        type: 'ASSIGNMENT',
+        title: 'Tugas Rumah',
+        instructions: 'Buat resume materi',
+        expectedOutput: 'Dokumen PDF 2 halaman',
+      },
+      {
+        id: 'inst-proj',
+        type: 'PROJECT',
+        title: 'Proyek Akhir',
+        projectBrief: 'Membuat web sederhana',
+        expectedDeliverable: 'Source code di GitHub',
+      },
+      {
+        id: 'inst-prod',
+        type: 'PRODUCT',
+        title: 'Produk Karya',
+        productBrief: 'Membuat infografis',
+        expectedProduct: 'Poster infografis A3',
+      },
+      {
+        id: 'inst-port',
+        type: 'PORTFOLIO',
+        title: 'Portofolio',
+        instructions: 'Kumpulkan portofolio',
+        evidenceRequirements: ['Laporan praktikum 1-5', 'Refleksi diri'],
+      },
+      {
+        id: 'inst-oral',
+        type: 'ORAL_TEST',
+        title: 'Ujian Lisan',
+        items: [{ id: 'oi-1', prompt: 'Jelaskan konsep looping', expectedResponse: 'Pengulangan instruksi', order: 1 }],
+      },
+      {
+        id: 'inst-self',
+        type: 'SELF_ASSESSMENT',
+        title: 'Penilaian Diri',
+        items: [{ id: 'si-1', statement: 'Saya memahami materi struktur data', category: 'Pemahaman' }],
+      },
+    ];
+
+    const multiPkg: AssessmentPackage = {
+      id: 'pkg-multi',
+      assessmentPlanId: 'plan-multi',
+      academicSettingId: 'setting-1',
+      title: 'Perangkat Asesmen Lengkap 9 Instrumen',
+      workflowStatus: 'SIAP',
+      needsReview: false,
+      revision: 1,
+      blueprintItems: [
+        {
+          id: 'bp-multi-1',
+          objectiveRefId: 'tp-1',
+          assessmentIndicator: 'Peserta didik memahami algoritma.',
+          materialOrContext: 'Dasar Pemrograman',
+          instrumentType: 'WRITTEN_TEST',
+          instrumentItemIds: ['wi-1'],
+          order: 1,
+        },
+      ],
+      instruments: multiInstruments,
+      answerKeys: [
+        {
+          id: 'ak-multi-1',
+          instrumentId: 'inst-written',
+          instrumentItemId: 'wi-1',
+          answerType: 'OPTION',
+          optionIds: ['opt-2'],
+          value: 'B. Pilihan B',
+        },
+      ],
+      scoringGuides: [
+        {
+          id: 'sg-multi-1',
+          title: 'Pedoman Penskoran Multi',
+          instrumentId: 'inst-written',
+          instrumentItemId: 'wi-1',
+          maxScore: 10,
+          guideType: 'OBJECTIVE',
+        },
+      ],
+      rubrics: [],
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    };
+
+    const context: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [multiPlan],
+      assessmentPackages: [multiPkg],
+      documentDate: '2026-09-20',
+    };
+
+    const snapshot = createAssessmentDocumentSnapshot(context);
+    const model = buildNormalizedAssessmentDocumentModel(snapshot);
+
+    assert(model.instruments.list.length === 9, 'Must preserve all 9 instruments');
+    const typesInModel = model.instruments.list.map((i) => i.type);
+    assert(typesInModel.includes('WRITTEN_TEST'), 'Must contain WRITTEN_TEST');
+    assert(typesInModel.includes('PERFORMANCE'), 'Must contain PERFORMANCE');
+    assert(typesInModel.includes('OBSERVATION'), 'Must contain OBSERVATION');
+    assert(typesInModel.includes('ASSIGNMENT'), 'Must contain ASSIGNMENT');
+    assert(typesInModel.includes('PROJECT'), 'Must contain PROJECT');
+    assert(typesInModel.includes('PRODUCT'), 'Must contain PRODUCT');
+    assert(typesInModel.includes('PORTFOLIO'), 'Must contain PORTFOLIO');
+    assert(typesInModel.includes('ORAL_TEST'), 'Must contain ORAL_TEST');
+    assert(typesInModel.includes('SELF_ASSESSMENT'), 'Must contain SELF_ASSESSMENT');
+  });
+
+  // Test 15: Blueprint item with dangling objectiveRefId is blocked from export
+  await test('9C.8.15 — Blueprint item with dangling objectiveRefId is blocked from export', () => {
+    const danglingPkg: AssessmentPackage = {
+      ...mockValidSiapPackage,
+      id: 'pkg-dangling',
+      blueprintItems: [
+        {
+          id: 'bp-dangling',
+          objectiveRefId: 'non-existent-tp-999',
+          assessmentIndicator: 'Indikator dummy',
+          instrumentType: 'WRITTEN_TEST',
+          instrumentItemIds: [],
+          order: 1,
+        },
+      ],
+    };
+
     const context: DocumentGenerationContext = {
       school: mockSchool,
       profile: mockProfile,
       academicSetting: mockAcademicSetting,
       tp: mockTP,
       assessmentPlans: [mockPlan],
-      assessmentPackages: [mockValidSiapPackage],
+      assessmentPackages: [danglingPkg],
+      documentDate: '2026-09-20',
     };
 
-    const res = await exportAssessmentDocx(context);
-    assert(Boolean(res.blob), 'Output blob must exist');
-    assert((res.blob as any).size > 0 || (res.blob as any).length > 0, 'Blob must not be empty');
-    assert(res.fileName.endsWith('.docx'), 'File name must end with .docx');
-    assert(res.snapshot.assessmentPackageId === 'pkg-siap-1', 'Snapshot must be attached');
+    const res = checkAssessmentExportEligibility(context);
+    assert(!res.eligible, 'Must be ineligible when blueprint has dangling TP reference');
+    assert(res.blockers.some((b) => b.includes('non-existent-tp-999')), 'Must name dangling ID in blockers');
   });
 
-  // Test 9: PDF Renderer produces valid Blob
-  await test('9C.8.9 — PDF renderer generates non-empty Blob and fileName from normalized model', async () => {
+  // Test 16: PASS-but-DRAFT package (valid structure but workflowStatus === 'DRAFT') is strictly blocked
+  await test('9C.8.16 — PASS-but-DRAFT package (valid structure but workflowStatus === "DRAFT") is strictly blocked', () => {
+    const passButDraftPackage: AssessmentPackage = {
+      ...mockValidSiapPackage,
+      id: 'pkg-pass-but-draft',
+      workflowStatus: 'DRAFT',
+    };
+
     const context: DocumentGenerationContext = {
       school: mockSchool,
       profile: mockProfile,
       academicSetting: mockAcademicSetting,
       tp: mockTP,
       assessmentPlans: [mockPlan],
-      assessmentPackages: [mockValidSiapPackage],
+      assessmentPackages: [passButDraftPackage],
+      documentDate: '2026-09-20',
     };
 
-    const res = await exportAssessmentPdf(context);
-    assert(Boolean(res.blob), 'Output blob must exist');
-    assert((res.blob as any).size > 0 || (res.blob as any).length > 0, 'Blob must not be empty');
-    assert(res.fileName.endsWith('.pdf'), 'File name must end with .pdf');
-    assert(res.snapshot.assessmentPackageId === 'pkg-siap-1', 'Snapshot must be attached');
+    const res = checkAssessmentExportEligibility(context);
+    assert(!res.eligible, 'Must be ineligible even if structurally complete when workflowStatus is DRAFT');
+    assert(res.blockers.some((b) => b.includes('DRAFT')), 'Must contain DRAFT blocker');
   });
 
-  // Test 10: Blank mode generates valid blank templates
-  await test('9C.8.10 — Blank mode export produces clean blank templates for DOCX and PDF', async () => {
+  // Test 17: Blank template mode produces BLANK_TEMPLATE snapshot without fake package ID/revision/status
+  await test('9C.8.17 — Blank template mode produces BLANK_TEMPLATE snapshot without fake package ID/revision/status', () => {
     const blankContext: DocumentGenerationContext = {
       school: mockSchool,
       profile: mockProfile,
@@ -414,13 +819,88 @@ async function runAudit9C8Regression() {
       assessmentPackages: [],
     };
 
-    const docxRes = await exportAssessmentDocx(blankContext);
-    assert(Boolean(docxRes.blob), 'Blank DOCX must exist');
-    assert((docxRes.blob as any).size > 0 || (docxRes.blob as any).length > 0, 'Blank DOCX must not be empty');
+    const blankSnap = createAssessmentDocumentSnapshot(blankContext);
+    assert(blankSnap.mode === 'BLANK_TEMPLATE', 'Snapshot mode must be BLANK_TEMPLATE');
+    assert(blankSnap.assessmentPackageId === undefined, 'Must not invent fake package ID');
+    assert(blankSnap.assessmentPackageRevision === undefined, 'Must not invent fake package revision');
+    assert(blankSnap.blueprintItems.length === 0, 'Blank snapshot must have 0 blueprint items');
+    assert(blankSnap.instruments.length === 0, 'Blank snapshot must have 0 instruments');
 
-    const pdfRes = await exportAssessmentPdf(blankContext);
-    assert(Boolean(pdfRes.blob), 'Blank PDF must exist');
-    assert((pdfRes.blob as any).size > 0 || (pdfRes.blob as any).length > 0, 'Blank PDF must not be empty');
+    const model = buildNormalizedAssessmentDocumentModel(blankSnap);
+    assert(model.metadata.isBlankMode === true, 'Model isBlankMode must be true');
+    assert(model.metadata.packageId === undefined, 'Model packageId must be undefined');
+    assert(model.metadata.packageRevision === undefined, 'Model packageRevision must be undefined');
+    assert(model.kisiKisi.rows.length === 1, 'Blank model should contain 1 empty template row');
+    assert(model.instruments.list.length === 0, 'Blank model instruments must be empty list');
+  });
+
+  // Test 18: DOCX renderer generates non-empty Blob and valid file name from normalized model
+  await test('9C.8.18 — DOCX renderer generates non-empty Blob and valid file name from normalized model', async () => {
+    const context: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [mockValidSiapPackage],
+      documentDate: '2026-09-20',
+    };
+
+    const res = await exportAssessmentDocx(context);
+    assert(Boolean(res.blob), 'Output blob must exist');
+    assert((res.blob as any).size > 0 || (res.blob as any).length > 0, 'Blob must not be empty');
+    assert(res.fileName.endsWith('.docx'), 'File name must end with .docx');
+    assert(res.fileName.includes('Rev2'), 'File name must include revision');
+    assert(res.snapshot.assessmentPackageId === 'pkg-siap-1', 'Snapshot must be attached');
+  });
+
+  // Test 19: PDF renderer generates non-empty Blob and valid file name from normalized model
+  await test('9C.8.19 — PDF renderer generates non-empty Blob and valid file name from normalized model', async () => {
+    const context: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [mockValidSiapPackage],
+      documentDate: '2026-09-20',
+    };
+
+    const res = await exportAssessmentPdf(context);
+    assert(Boolean(res.blob), 'Output blob must exist');
+    assert((res.blob as any).size > 0 || (res.blob as any).length > 0, 'Blob must not be empty');
+    assert(res.fileName.endsWith('.pdf'), 'File name must end with .pdf');
+    assert(res.fileName.includes('Rev2'), 'File name must include revision');
+    assert(res.snapshot.assessmentPackageId === 'pkg-siap-1', 'Snapshot must be attached');
+  });
+
+  // Test 20: DOCX and PDF sibling renderers consume identical semantic normalized model content
+  await test('9C.8.20 — DOCX and PDF sibling renderers produce identical semantic normalized model content', async () => {
+    const context: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [mockValidSiapPackage],
+      documentDate: '2026-09-20',
+    };
+
+    const snapshot = createAssessmentDocumentSnapshot(context);
+    const model = buildNormalizedAssessmentDocumentModel(snapshot);
+
+    const docxBlob = await renderAssessmentDocx(model);
+    const pdfBlob = renderAssessmentPdf(model);
+
+    assert(Boolean(docxBlob), 'DOCX Blob must be produced');
+    assert(Boolean(pdfBlob), 'PDF Blob must be produced');
+    assert((docxBlob as any).size > 0 || (docxBlob as any).length > 0, 'DOCX blob must not be empty');
+    assert((pdfBlob as any).size > 0 || (pdfBlob as any).length > 0, 'PDF blob must not be empty');
+    assert(model.metadata.title === 'PERANGKAT ASESMEN PEMBELAJARAN', 'Semantic title must be shared');
+    assert(model.kisiKisi.rows.length === 2, 'Kisi-kisi rows must be shared');
+    assert(model.instruments.list.length === 1, 'Instruments must be shared');
+    assert(model.answerKeys.list.length === 2, 'Answer keys must be shared');
+    assert(model.scoringGuides.list.length === 2, 'Scoring guides must be shared');
   });
 
   console.log(`\nAll ${passedCount} tests in Audit 9C.8 regression suite PASSED successfully!\n`);
