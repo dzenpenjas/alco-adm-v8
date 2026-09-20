@@ -177,9 +177,9 @@ app.post('/api/ai/analyze-cp', async (req, res) => {
       const prompt = `Anda adalah pakar kurikulum dan konsultan pendidikan profesional di Indonesia.
 Bantu seorang guru memahami, membedah, dan menganalisis Capaian Pembelajaran (CP) berikut:
 
-- Mata Pelajaran: ${subject || 'Mata Pelajaran'}
-- Jenjang & Kelas: ${grade || 'Kelas 4'} (${phase || 'Fase B'})
-- Kurikulum: ${curriculum || 'Kurikulum Merdeka'}
+- Mata Pelajaran: ${subject || '-'}
+- Jenjang & Kelas: ${grade || '-'} (${phase || '-'})
+- Kurikulum: ${curriculum || '-'}
 - CP Umum: ${cpText || '-'}
 - Elemen CP: ${
         elements && elements.length > 0
@@ -188,10 +188,10 @@ Bantu seorang guru memahami, membedah, dan menganalisis Capaian Pembelajaran (CP
       }
 
 Berikan output dalam format JSON dengan struktur:
-1. "summary": Ringkasan fokus utama CP dalam 1-2 paragraf bahasa Indonesia yang jelas, bernas, dan aplikatif bagi guru.
+1. "summary": Ringkasan fokus utama CP dalam 1-2 paragraf bahasa Indonesia yang jelas, bernas, dan aplikatif bagi guru. Gunakan terminologi "Murid" (bukan peserta didik).
 2. "keyCompetencies": Array string berisi daftar kompetensi utama/kata kerja operasional (KKO) yang ditargetkan pada fase ini.
 3. "keyContents": Array string materi/konten inti esensial.
-4. "p3Focus": Array string dimensi Profil Pelajar Pancasila yang paling relevan.
+4. "p3Focus": Array string Dimensi Profil Lulusan yang paling relevan.
 5. "pedagogicalTips": Array string berisi 2-3 tips strategi pembelajaran kontekstual di kelas.`;
 
       const response = await generateContentWithRetry({
@@ -265,14 +265,14 @@ Tugas Anda adalah merumuskan Tujuan Pembelajaran (TP) yang diturunkan SECARA KET
 
 PERINGATAN PENTING:
 - TP HARUS mencakup Kompetensi (kemampuan/keterampilan) dan Lingkup Materi (konten esensial).
-- Formula TP yang baik: "Peserta didik mampu [Kompetensi/KKO] [Lingkup Materi] melalui [Konteks/Aktivitas/Kondisi] dengan [Kriteria/Tepat]."
+- Formula TP yang baik: "Murid mampu [Kompetensi/KKO] [Lingkup Materi] melalui [Konteks/Aktivitas/Kondisi] dengan [Kriteria/Tepat]."
 - TP harus dapat diobservasi dan diukur (mengacu pada Taksonomi Bloom / Anderson atau Marzano).
 - Jangan membuat TP yang menyimpang dari CP yang tersimpan.
 
 DATA PEMBELAJARAN:
-- Mata Pelajaran: ${subject || ''}
-- Tingkat: ${grade || ''} (${phase || ''})
-- Kurikulum: ${curriculum || 'Kurikulum Merdeka'}
+- Mata Pelajaran: ${subject || '-'}
+- Tingkat: ${grade || '-'} (${phase || '-'})
+- Kurikulum: ${curriculum || '-'}
 - Deskripsi CP Umum: ${cpGeneral || '-'}
 - Elemen-Elemen CP:
 ${
@@ -307,7 +307,7 @@ Kembalikan respon dalam format JSON sesuai schema:`;
               p3Dimensions: {
                 type: Type.ARRAY,
                 items: { type: Type.STRING },
-                description: 'Dimensi Profil Pelajar Pancasila yang diasah (1-3 dimensi)',
+                description: 'Dimensi Profil Lulusan yang diasah (1-3 dimensi)',
               },
             },
             required: ['code', 'elementName', 'statement', 'competence', 'contentScope', 'p3Dimensions'],
@@ -346,28 +346,29 @@ app.post('/api/ai/generate-atp', async (req, res) => {
 Susunlah Matriks Alur Tujuan Pembelajaran (ATP) yang berurutan secara logis, pedagogis, dan terstruktur dari daftar Tujuan Pembelajaran (TP) berikut:
 
 DATA PEMBELAJARAN:
-- Mata Pelajaran: ${subject || 'Bahasa Indonesia'}
-- Kelas / Fase: ${grade || 'Kelas 4'} / ${phase || 'Fase B'}
-- Tahun Ajaran / Semester: ${academicYear || '2025/2026'} / ${semester || '1 (Ganjil)'}
+- Mata Pelajaran: ${subject || '-'}
+- Kelas / Fase: ${grade || '-'} / ${phase || '-'}
+- Tahun Ajaran / Semester: ${academicYear || '-'} / ${semester || '-'}
 - Alokasi Jam per Minggu: ${totalHoursPerWeek} JP
-- Rujukan CP: ${cpGeneral || 'Sesuai kurikulum nasional'}
+- Rujukan CP: ${cpGeneral || '-'}
 
 DAFTAR TP YANG SUDAH DIBUAT:
 ${tps
   .map(
     (tp: { code: string; statement: string; competence?: string; contentScope?: string; p3Dimensions?: string[] }, idx: number) =>
-      `${idx + 1}. [Kode: ${tp.code}] ${tp.statement} (Materi: ${tp.contentScope || '-'}, Kompetensi: ${
+      `${idx + 1}. [Kode: ${tp.code || '-'}] ${tp.statement} (Materi: ${tp.contentScope || '-'}, Kompetensi: ${
         tp.competence || '-'
-      }, P3: ${tp.p3Dimensions?.join(', ') || '-'})`
+      }, Dimensi Profil Lulusan: ${tp.p3Dimensions?.join(', ') || '-'})`
   )
   .join('\n')}
 
 INSTRUKSI PENYUSUNAN ATP:
 1. Urutkan TP secara logis (misal dari konkret ke abstrak, mudah ke sukar, atau hierarki keterampilan bahasa/sains/matematika).
-2. Tentukan Alokasi Waktu (JP) yang realistis untuk tiap langkah pembelajaran (total berkisar 20-36 JP per semester untuk mapel ini).
+2. Tentukan Alokasi Waktu (JP) yang realistis untuk tiap langkah pembelajaran.
 3. Rincikan Rencana Asesmen (Asesmen Awal, Formatif, dan Sumatif Lingkup Materi).
 4. Rincikan Glosarium / Kata Kunci penting.
-5. Buat rasionalisasi alur pembelajaran secara komprehensif.
+5. Gunakan terminologi "Murid" (bukan peserta didik) dan "Dimensi Profil Lulusan".
+6. Buat rasionalisasi alur pembelajaran secara komprehensif.
 
 Kembalikan output JSON sesuai schema:`;
 

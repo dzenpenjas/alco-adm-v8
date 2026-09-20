@@ -85,7 +85,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
   docChildren.push(
     ...createDocumentHeader(
       docTitle,
-      `${academicSetting.curriculum || 'Kurikulum Merdeka'} — ${academicSetting.grade} (${academicSetting.phase || '-'})`
+      `${academicSetting.curriculum || '-'} — ${academicSetting.grade || '-'} (${academicSetting.phase || '-'})`
     )
   );
 
@@ -173,10 +173,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       : plan.p3Dimensions && plan.p3Dimensions.length > 0
       ? plan.p3Dimensions
       : [];
-  const dimensionTitle =
-    plan.graduateProfileDimensions && plan.graduateProfileDimensions.length > 0
-      ? 'B. Dimensi Profil Lulusan'
-      : 'B. Profil Pelajar Pancasila';
+  const dimensionTitle = 'B. Dimensi Profil Lulusan';
   const dimensionsText = explicitDimensions.length > 0 ? explicitDimensions.join(', ') : '-';
 
   // I. INFORMASI UMUM

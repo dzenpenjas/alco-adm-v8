@@ -31,7 +31,7 @@ export async function generateAnalisisCpTp(
   docChildren.push(
     ...createDocumentHeader(
       'ANALISIS CAPAIAN PEMBELAJARAN (CP) MENJADI TUJUAN PEMBELAJARAN (TP)',
-      academicSetting.curriculum || 'Kurikulum Merdeka'
+      academicSetting.curriculum || '-'
     )
   );
 
@@ -238,7 +238,7 @@ export async function generateAnalisisCpTp(
       children: [
         new TextRun({
           text:
-            'Catatan: Rumusan Tujuan Pembelajaran (TP) di atas memadukan aspek kompetensi kognitif/psikomotorik, kedalaman materi kontekstual, dan penguatan Profil Pelajar Pancasila yang dapat disesuaikan dengan karakteristik peserta didik dan daya dukung satuan pendidikan.',
+            'Catatan: Rumusan Tujuan Pembelajaran (TP) di atas memadukan aspek kompetensi, kedalaman materi kontekstual, dan penguatan Dimensi Profil Lulusan yang dapat disesuaikan dengan karakteristik murid dan daya dukung satuan pendidikan.',
           size: 18,
           font: 'Arial',
           italics: true,

@@ -116,7 +116,7 @@ export async function generateATP(context: DocumentGenerationContext): Promise<G
       createTableHeaderCell('Tujuan Pembelajaran (TP)', 28, AlignmentType.LEFT),
       createTableHeaderCell('Lingkup Materi', 20, AlignmentType.LEFT),
       createTableHeaderCell('Alokasi JP', 10),
-      createTableHeaderCell('Profil Pelajar Pancasila', 18, AlignmentType.LEFT),
+      createTableHeaderCell('Dimensi Profil Lulusan', 18, AlignmentType.LEFT),
       createTableHeaderCell('Rencana Asesmen & Glosarium', 18, AlignmentType.LEFT),
     ],
   });

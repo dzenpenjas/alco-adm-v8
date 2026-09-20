@@ -192,8 +192,8 @@ export function compareDocumentSnapshots(
     {
       key: 'curriculum',
       label: 'Kurikulum',
-      valueA: snapA.curriculum || 'Kurikulum Merdeka',
-      valueB: snapB.curriculum || 'Kurikulum Merdeka',
+      valueA: snapA.curriculum || '-',
+      valueB: snapB.curriculum || '-',
       isMatch: (snapA.curriculum || '').trim() === (snapB.curriculum || '').trim(),
     },
     {

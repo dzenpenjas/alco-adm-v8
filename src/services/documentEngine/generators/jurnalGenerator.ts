@@ -33,15 +33,15 @@ export async function generateJurnal(context: DocumentGenerationContext): Promis
   docChildren.push(
     ...createDocumentHeader(
       headerTitle,
-      `${academicSetting.curriculum} — ${academicSetting.subject} ${academicSetting.grade} TP ${academicSetting.academicYear || '2025/2026'}`
+      `${academicSetting.curriculum || '-'} — ${academicSetting.subject || '-'} ${academicSetting.grade || '-'} TP ${academicSetting.academicYear || '-'}`
     )
   );
 
   // 2. Identity Metadata
   docChildren.push(
     createIdentityMetadataTable(school, profile, academicSetting, [
-      ['Semester', `: ${academicSetting.semester || '1 (Ganjil)'}`],
-      ['Total Peserta Didik', isBlankMode ? ': .......... Siswa' : `: ${context.students?.length || 0} Siswa`],
+      ['Semester', `: ${academicSetting.semester || '-'}`],
+      ['Total Murid', isBlankMode ? ': .......... Siswa' : `: ${context.students?.length || 0} Siswa`],
     ])
   );
   docChildren.push(new Paragraph({ spacing: { after: 180 } }));

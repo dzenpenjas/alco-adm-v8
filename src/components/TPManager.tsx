@@ -786,7 +786,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">
-                  Dimensi Profil Pelajar Pancasila (Pilih 1-3)
+                  Dimensi Profil Lulusan (Pilih 1-3)
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   {P3_DIMENSIONS.map((dim) => {

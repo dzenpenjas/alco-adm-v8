@@ -372,7 +372,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
             </div>
 
             <p className="text-xs text-blue-100/90 leading-relaxed">
-              AI akan menganalisis teks CP Anda untuk mengekstraksi kompetensi kunci (KKO), konten esensial, dan dimensi Profil Pelajar Pancasila yang harus tercapai.
+              AI akan menganalisis teks CP Anda untuk mengekstraksi kompetensi kunci (KKO), konten esensial, dan Dimensi Profil Lulusan yang harus tercapai.
             </p>
 
             <button
@@ -449,7 +449,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
               {/* P3 focus */}
               <div>
                 <span className="font-bold text-slate-800 uppercase text-[10px] block mb-1.5">
-                  Profil Pelajar Pancasila:
+                  Dimensi Profil Lulusan:
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {analysisResult.p3Focus.map((p, i) => (

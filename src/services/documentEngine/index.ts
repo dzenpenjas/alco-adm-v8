@@ -69,7 +69,7 @@ export const DOCUMENT_CATALOG: DocumentCatalogItem[] = [
     type: 'ATP',
     category: 'Perencanaan Utama',
     title: 'Alur Tujuan Pembelajaran (ATP)',
-    description: 'Dokumen turunan CP & TP yang memuat alur langkah pembelajaran bertahap, alokasi JP, Profil Pelajar Pancasila, rencana asesmen, dan glosarium.',
+    description: 'Dokumen turunan CP & TP yang memuat alur langkah pembelajaran bertahap, alokasi JP, Dimensi Profil Lulusan, rencana asesmen, dan glosarium.',
     requiredSources: ['Data Profil & Sekolah', 'Data Akademik', 'Tujuan Pembelajaran (TP)', 'Matriks ATP'],
   },
   {
@@ -133,7 +133,7 @@ export const DOCUMENT_CATALOG: DocumentCatalogItem[] = [
     type: 'ASESMEN',
     category: 'Pelaksanaan & Asesmen',
     title: 'Instrumen Asesmen & Rubrik Penilaian',
-    description: 'Panduan asesmen formatif, kisi-kisi penilaian sumatif lingkup materi, lembar observasi sikap profil pelajar pancasila, dan rubrik ketercapaian.',
+    description: 'Panduan asesmen formatif, kisi-kisi penilaian sumatif lingkup materi, lembar observasi sikap Dimensi Profil Lulusan, dan rubrik ketercapaian.',
     requiredSources: ['Data Profil & Sekolah', 'Data Akademik', 'Tujuan Pembelajaran (TP)', 'Alur Tujuan Pembelajaran (ATP)'],
   },
   {

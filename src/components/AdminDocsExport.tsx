@@ -360,7 +360,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
       generatedAt: new Date().toISOString(),
       format,
       documentMode,
-      schoolName: school.name || 'Satuan Pendidikan',
+      schoolName: school.name || '',
       npsn: school.npsn,
       principalName: school.principalName || '',
       principalNip: school.principalNip,
@@ -370,7 +370,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
       grade: academicSetting.grade || '',
       academicYear: academicSetting.academicYear || '',
       semester: academicSetting.semester || '',
-      curriculum: academicSetting.curriculum || 'Kurikulum Merdeka',
+      curriculum: academicSetting.curriculum || '',
       curriculumType: getCurriculumType(academicSetting.curriculum || academicSetting.curriculumType),
       studentCount: context.students?.length || 0,
       sourceVersions: {
@@ -987,9 +987,9 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             const previewPrincipalNip = activeSnapshot?.principalNip || school.principalNip || '';
             const previewTeacherName = activeSnapshot?.teacherName || profile.name || '';
             const previewTeacherNip = activeSnapshot?.teacherNip || profile.nip || '';
-            const previewCurriculum = activeSnapshot?.curriculum || academicSetting.curriculum || 'Kurikulum Merdeka';
-            const previewAcademicYear = activeSnapshot?.academicYear || academicSetting.academicYear || '2025/2026';
-            const previewSemester = activeSnapshot?.semester || academicSetting.semester || '1 (Ganjil)';
+            const previewCurriculum = activeSnapshot?.curriculum || academicSetting.curriculum || '-';
+            const previewAcademicYear = activeSnapshot?.academicYear || academicSetting.academicYear || '-';
+            const previewSemester = activeSnapshot?.semester || academicSetting.semester || '-';
             const previewGrade = activeSnapshot?.grade || academicSetting.grade || '-';
             const previewPhase = activeSnapshot?.phase || academicSetting.phase || '-';
             const previewSubject = activeSnapshot?.subject || academicSetting.subject || '-';

@@ -35,12 +35,12 @@ export async function generatePdfDocument(
   const { school, profile, academicSetting, cp, tp, atp, students, calendarDays, timeAllocations } = context;
   const isBlankMode = context.documentMode === 'blank';
 
-  const subject = academicSetting?.subject || 'Mata Pelajaran';
-  const grade = academicSetting?.grade || 'Kelas 1';
-  const semester = academicSetting?.semester || '1 (Ganjil)';
-  const academicYear = academicSetting?.academicYear || '2026/2027';
-  const cleanSubject = subject.replace(/[^a-zA-Z0-9]/g, '_');
-  const cleanGrade = grade.replace(/[^a-zA-Z0-9]/g, '_');
+  const subject = academicSetting?.subject || '-';
+  const grade = academicSetting?.grade || '-';
+  const semester = academicSetting?.semester || '-';
+  const academicYear = academicSetting?.academicYear || '-';
+  const cleanSubject = (subject || 'Mapel').replace(/[^a-zA-Z0-9]/g, '_');
+  const cleanGrade = (grade || 'Kelas').replace(/[^a-zA-Z0-9]/g, '_');
 
   let title = '';
   let subTitle = '';
@@ -194,7 +194,7 @@ export async function generatePdfDocument(
           { header: 'Kode TP', dataKey: 'code', width: 22, align: 'center' },
           { header: 'Pernyataan Tujuan Pembelajaran', dataKey: 'statement', width: 85 },
           { header: 'Lingkup Materi', dataKey: 'mat', width: 40 },
-          { header: 'Profil Pelajar Pancasila', dataKey: 'p3', width: 30 },
+          { header: 'Dimensi Profil Lulusan', dataKey: 'p3', width: 30 },
         ],
         rows,
       });
@@ -405,7 +405,7 @@ export async function generatePdfDocument(
         type: 'paragraph',
         text: isBlankMode
           ? 'Kompetensi Awal: ........................................................\nProfil Pancasila: ........................................................\nTarget Siswa: ........................................................\nJumlah Siswa: ..........\nModel Pembelajaran: ........................................................\nSarana & Prasarana: ........................................................'
-          : `Status Rencana: ${matchedPlan ? `${matchedPlan.status} (${matchedPlan.sourceType})` : 'DRAFT'}\nKompetensi Awal: ${matchedPlan?.initialCompetency || '-'}\nProfil Pelajar Pancasila: ${p3Str}\nTarget Peserta Didik: ${matchedPlan?.targetStudents || '-'}\nJumlah Peserta Didik: ${students?.length !== undefined ? `${students.length} Siswa` : '-'}\nModel Pembelajaran: ${matchedPlan?.learningModel || '-'}\nSarana & Prasarana: ${resourcesStr}`,
+          : `Status Rencana: ${matchedPlan ? `${matchedPlan.status} (${matchedPlan.sourceType})` : 'DRAFT'}\nKompetensi Awal: ${matchedPlan?.initialCompetency || '-'}\nDimensi Profil Lulusan: ${p3Str}\nTarget Murid: ${matchedPlan?.targetStudents || '-'}\nJumlah Murid: ${students?.length !== undefined ? `${students.length} Siswa` : '-'}\nModel Pembelajaran: ${matchedPlan?.learningModel || '-'}\nSarana & Prasarana: ${resourcesStr}`,
       });
 
       sections.push({
