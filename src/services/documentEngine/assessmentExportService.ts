@@ -38,10 +38,8 @@ import {
 import { DocumentGenerationContext } from './types';
 import {
   createDocumentHeader,
-  createIdentityMetadataTable,
   createTableHeaderCell,
   createTableDataCell,
-  createSignoffBlock,
   INDONESIAN_MONTHS,
 } from './docxStyles';
 import {
@@ -182,6 +180,17 @@ export function checkAssessmentExportEligibility(
     );
   }
 
+  // Verify revision number is valid integer >= 1
+  if (
+    typeof resolvedPkg.revision !== 'number' ||
+    isNaN(resolvedPkg.revision) ||
+    resolvedPkg.revision < 1
+  ) {
+    blockers.push(
+      `Perangkat Asesmen "${resolvedPkg.title}" memiliki nomor revisi tidak valid (${resolvedPkg.revision}). Revisi paket wajib berupa bilangan bulat >= 1.`
+    );
+  }
+
   // Verify core structural validity using package validator
   const validationContext = {
     academicSetting: context.academicSetting,
@@ -308,14 +317,14 @@ export function createAssessmentDocumentSnapshot(
   const resolvedObjectives: Record<string, { code: string; statement: string }> = {};
   (context.tp?.items || []).forEach((t) => {
     resolvedObjectives[t.id] = {
-      code: t.code || 'TP',
+      code: t.code || '',
       statement: t.statement || '',
     };
   });
   if (context.k13Analysis?.items) {
     context.k13Analysis.items.forEach((kd) => {
       resolvedObjectives[kd.id] = {
-        code: kd.kd || 'KD',
+        code: kd.kd || '',
         statement: kd.tujuanPembelajaran || kd.indikator || '',
       };
     });
@@ -324,8 +333,18 @@ export function createAssessmentDocumentSnapshot(
   // Freeze associated plan
   const plan = (context.assessmentPlans || []).find((p) => p.id === pkg.assessmentPlanId);
 
+  if (
+    typeof pkg.revision !== 'number' ||
+    isNaN(pkg.revision) ||
+    pkg.revision < 1
+  ) {
+    throw new Error(
+      `Gagal membuat snapshot asesmen: Revisi Perangkat Asesmen tidak valid (${pkg.revision}). Revisi paket wajib berupa bilangan bulat >= 1.`
+    );
+  }
+
   const snapshot: AssessmentDocumentSnapshot = {
-    snapshotId: `snap-asmt-${pkg.id}-r${pkg.revision || 1}-${Date.now()}`,
+    snapshotId: `snap-asmt-${pkg.id}-r${pkg.revision}-${Date.now()}`,
     mode: 'CANONICAL_PACKAGE',
     documentType: 'ASESMEN',
     documentDate: dateResult.rawDate,
@@ -333,7 +352,7 @@ export function createAssessmentDocumentSnapshot(
     assessmentPlanId: pkg.assessmentPlanId,
     assessmentPlanTitle: plan?.title,
     assessmentPackageId: pkg.id,
-    assessmentPackageRevision: pkg.revision || 1,
+    assessmentPackageRevision: pkg.revision,
     packageTitle: pkg.title,
     packageReviewReason: pkg.reviewReason,
     schoolName: school.name || '',
@@ -417,9 +436,16 @@ export function buildNormalizedAssessmentDocumentModel(
       ]
     : snapshot.blueprintItems.map((bp, idx) => {
         const obj = snapshot.resolvedObjectives[bp.objectiveRefId];
-        const tpText = obj
-          ? `[${obj.code}] ${obj.statement}`
-          : bp.objectiveRefId || '-';
+        let tpText = bp.objectiveRefId || '-';
+        if (obj) {
+          if (obj.code && obj.statement) {
+            tpText = `[${obj.code}] ${obj.statement}`;
+          } else if (obj.statement) {
+            tpText = obj.statement;
+          } else if (obj.code) {
+            tpText = `[${obj.code}]`;
+          }
+        }
 
         return {
           no: bp.order || idx + 1,
@@ -648,6 +674,194 @@ function getInstrumentTypeLabel(type: string): string {
   }
 }
 
+function createNormalizedAssessmentIdentityTable(
+  metadata: NormalizedAssessmentDocument['metadata'],
+  extraRows: [string, string][] = []
+): Table {
+  const isK13Curriculum =
+    metadata.curriculum &&
+    (metadata.curriculum.includes('2013') || metadata.curriculum.includes('K13'));
+
+  const classRow: [string, string] = isK13Curriculum
+    ? ['Kelas', `: ${metadata.grade || '-'}`]
+    : metadata.phase
+    ? ['Fase / Kelas', `: ${metadata.phase} / ${metadata.grade || '-'}`]
+    : ['Kelas', `: ${metadata.grade || '-'}`];
+
+  const semesterText =
+    metadata.academicYear && metadata.semester
+      ? `${metadata.academicYear} / ${metadata.semester}`
+      : metadata.academicYear || metadata.semester || '-';
+
+  const baseRows: [string, string][] = [
+    ['Satuan Pendidikan', `: ${metadata.schoolName || '-'}`],
+    ['NPSN', `: ${metadata.npsn || '-'}`],
+    ['Alamat', `: ${metadata.schoolAddress || '-'}`],
+    ['Kurikulum', `: ${metadata.curriculum || '-'}`],
+    ['Mata Pelajaran', `: ${metadata.subject || '-'}`],
+    classRow,
+    ['Tahun Ajaran / Semester', `: ${semesterText}`],
+    ['Guru Mata Pelajaran', `: ${metadata.teacherName || '-'}`],
+    ['NIP Guru', `: ${metadata.teacherNip || '-'}`],
+    ...extraRows,
+  ];
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: { style: BorderStyle.NONE },
+      bottom: { style: BorderStyle.NONE },
+      left: { style: BorderStyle.NONE },
+      right: { style: BorderStyle.NONE },
+      insideHorizontal: { style: BorderStyle.NONE },
+      insideVertical: { style: BorderStyle.NONE },
+    },
+    rows: baseRows.map(
+      ([label, val]) =>
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 30, type: WidthType.PERCENTAGE },
+              children: [
+                new Paragraph({
+                  children: [new TextRun({ text: label, bold: true, size: 20, font: 'Arial' })],
+                }),
+              ],
+            }),
+            new TableCell({
+              width: { size: 70, type: WidthType.PERCENTAGE },
+              children: [
+                new Paragraph({
+                  children: [new TextRun({ text: val, size: 20, font: 'Arial' })],
+                }),
+              ],
+            }),
+          ],
+        })
+    ),
+  });
+}
+
+function createNormalizedAssessmentSignoffBlock(
+  signoff: NormalizedAssessmentDocument['signoff']
+): (Paragraph | Table)[] {
+  const isBlankMode = signoff.isBlankMode;
+  const dateStr = isBlankMode
+    ? '....................., .................... 20....'
+    : signoff.locationAndDate;
+
+  const principalTitle = signoff.principalTitle || 'Kepala Sekolah';
+  const teacherTitle = signoff.teacherTitle || 'Guru Mata Pelajaran';
+
+  const principalNameText = isBlankMode
+    ? '(........................)'
+    : signoff.principalName
+    ? signoff.principalName
+    : '(........................)';
+
+  const principalNipText = isBlankMode
+    ? 'NIP. ....................'
+    : signoff.principalNip
+    ? `NIP. ${signoff.principalNip}`
+    : 'NIP. ....................';
+
+  const teacherNameText = isBlankMode
+    ? '(........................)'
+    : signoff.teacherName
+    ? signoff.teacherName
+    : '(........................)';
+
+  const teacherNipText = isBlankMode
+    ? 'NIP. ....................'
+    : signoff.teacherNip
+    ? `NIP. ${signoff.teacherNip}`
+    : 'NIP. ....................';
+
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: { style: BorderStyle.NONE },
+      bottom: { style: BorderStyle.NONE },
+      left: { style: BorderStyle.NONE },
+      right: { style: BorderStyle.NONE },
+      insideHorizontal: { style: BorderStyle.NONE },
+      insideVertical: { style: BorderStyle.NONE },
+    },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: 50, type: WidthType.PERCENTAGE },
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: 'Mengetahui,', size: 20, font: 'Arial' })],
+              }),
+              new Paragraph({
+                children: [new TextRun({ text: principalTitle, size: 20, font: 'Arial' })],
+              }),
+              new Paragraph({ spacing: { after: 720 } }),
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: principalNameText,
+                    bold: !isBlankMode && !!signoff.principalName,
+                    size: 20,
+                    font: 'Arial',
+                    underline: !isBlankMode && signoff.principalName ? {} : undefined,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: principalNipText,
+                    size: 20,
+                    font: 'Arial',
+                  }),
+                ],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: 50, type: WidthType.PERCENTAGE },
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: dateStr, size: 20, font: 'Arial' })],
+              }),
+              new Paragraph({
+                children: [new TextRun({ text: teacherTitle, size: 20, font: 'Arial' })],
+              }),
+              new Paragraph({ spacing: { after: 720 } }),
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: teacherNameText,
+                    bold: !isBlankMode && !!signoff.teacherName,
+                    size: 20,
+                    font: 'Arial',
+                    underline: !isBlankMode && signoff.teacherName ? {} : undefined,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: teacherNipText,
+                    size: 20,
+                    font: 'Arial',
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+
+  return [new Paragraph({ spacing: { before: 360 } }), table];
+}
+
 /**
  * DOCX Renderer: Produces official DOCX from normalized assessment document model.
  */
@@ -655,48 +869,6 @@ export async function renderAssessmentDocx(
   model: NormalizedAssessmentDocument
 ): Promise<Blob> {
   const isBlank = model.metadata.isBlankMode;
-
-  const schoolWrapper: SchoolData = {
-    id: 'school',
-    name: model.metadata.schoolName,
-    npsn: model.metadata.npsn || '',
-    address: model.metadata.schoolAddress || '',
-    village: '',
-    district: '',
-    regency: '',
-    province: '',
-    principalName: model.signoff.principalName || '',
-    principalNip: model.signoff.principalNip || '',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const profileWrapper: TeacherProfile = {
-    id: 'profile',
-    schoolId: 'school',
-    name: model.signoff.teacherName || model.metadata.teacherName || '',
-    nip: model.signoff.teacherNip || model.metadata.teacherNip || '',
-    status: 'PNS',
-    defaultSubject: model.metadata.subject,
-    defaultLevel: 'SMP',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const academicWrapper: AcademicSetting = {
-    id: 'academic',
-    profileId: 'profile',
-    curriculum: model.metadata.curriculum,
-    curriculumType: model.metadata.curriculum.includes('K13') ? 'K13' : 'KURIKULUM_MERDEKA',
-    subject: model.metadata.subject,
-    level: 'SMP',
-    grade: model.metadata.grade,
-    phase: model.metadata.phase || '',
-    academicYear: model.metadata.academicYear,
-    semester: (model.metadata.semester || '1 (Ganjil)') as any,
-    updatedAt: new Date().toISOString(),
-  };
-
   const docChildren: any[] = [];
 
   const extraIdentityRows: [string, string][] = [];
@@ -712,7 +884,7 @@ export async function renderAssessmentDocx(
     ...createDocumentHeader(model.metadata.title, model.metadata.subTitle)
   );
   docChildren.push(
-    createIdentityMetadataTable(schoolWrapper, profileWrapper, academicWrapper, extraIdentityRows)
+    createNormalizedAssessmentIdentityTable(model.metadata, extraIdentityRows)
   );
   docChildren.push(new Paragraph({ spacing: { after: 240 } }));
 
@@ -1204,12 +1376,7 @@ export async function renderAssessmentDocx(
   // SECTION VI: Sign-off Block
   docChildren.push(new Paragraph({ spacing: { after: 200 } }));
   docChildren.push(
-    ...createSignoffBlock(
-      schoolWrapper,
-      profileWrapper,
-      isBlank,
-      model.signoff.locationAndDate
-    )
+    ...createNormalizedAssessmentSignoffBlock(model.signoff)
   );
 
   const doc = new Document({
@@ -1239,47 +1406,6 @@ export async function renderAssessmentDocx(
  */
 export function renderAssessmentPdf(model: NormalizedAssessmentDocument): Blob {
   const isBlank = model.metadata.isBlankMode;
-
-  const schoolWrapper: SchoolData = {
-    id: 'school',
-    name: model.metadata.schoolName,
-    npsn: model.metadata.npsn || '',
-    address: model.metadata.schoolAddress || '',
-    village: '',
-    district: '',
-    regency: '',
-    province: '',
-    principalName: model.signoff.principalName || '',
-    principalNip: model.signoff.principalNip || '',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const profileWrapper: TeacherProfile = {
-    id: 'profile',
-    schoolId: 'school',
-    name: model.signoff.teacherName || model.metadata.teacherName || '',
-    nip: model.signoff.teacherNip || model.metadata.teacherNip || '',
-    status: 'PNS',
-    defaultSubject: model.metadata.subject,
-    defaultLevel: 'SMP',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const academicWrapper: AcademicSetting = {
-    id: 'academic',
-    profileId: 'profile',
-    curriculum: model.metadata.curriculum,
-    curriculumType: model.metadata.curriculum.includes('K13') ? 'K13' : 'KURIKULUM_MERDEKA',
-    subject: model.metadata.subject,
-    level: 'SMP',
-    grade: model.metadata.grade,
-    phase: model.metadata.phase || '',
-    academicYear: model.metadata.academicYear,
-    semester: (model.metadata.semester || '1 (Ganjil)') as any,
-    updatedAt: new Date().toISOString(),
-  };
 
   const extraIdentityRows: [string, string][] = [];
   if (!isBlank && model.metadata.packageRevision !== undefined) {
@@ -1569,7 +1695,7 @@ export function renderAssessmentPdf(model: NormalizedAssessmentDocument): Blob {
 
   const builder = new PdfDocumentBuilder('portrait');
   builder.renderHeader(model.metadata.title, model.metadata.subTitle);
-  builder.renderIdentityBlock(schoolWrapper, profileWrapper, academicWrapper, extraIdentityRows);
+  builder.renderNormalizedIdentityBlock(model.metadata, extraIdentityRows);
 
   for (const sec of sections) {
     if (sec.type === 'heading') {
@@ -1587,12 +1713,7 @@ export function renderAssessmentPdf(model: NormalizedAssessmentDocument): Blob {
     }
   }
 
-  builder.renderSignatureBlock(
-    schoolWrapper,
-    profileWrapper,
-    model.signoff.locationAndDate,
-    isBlank
-  );
+  builder.renderNormalizedSignatureBlock(model.signoff);
 
   return builder.getBlob();
 }
@@ -1612,8 +1733,17 @@ export function generateAssessmentDocumentFileName(
     return `Format_Asesmen_${cleanSubject}${gradeSuffix}_Template.${extension}`;
   }
 
-  const rev = snapshot.assessmentPackageRevision ?? 1;
-  return `Perangkat_Asesmen_${cleanSubject}${gradeSuffix}_Rev${rev}.${extension}`;
+  if (
+    typeof snapshot.assessmentPackageRevision !== 'number' ||
+    isNaN(snapshot.assessmentPackageRevision) ||
+    snapshot.assessmentPackageRevision < 1
+  ) {
+    throw new Error(
+      `Gagal membuat nama file: Nomor revisi paket asesmen tidak valid (${snapshot.assessmentPackageRevision}).`
+    );
+  }
+
+  return `Perangkat_Asesmen_${cleanSubject}${gradeSuffix}_Rev${snapshot.assessmentPackageRevision}.${extension}`;
 }
 
 /**

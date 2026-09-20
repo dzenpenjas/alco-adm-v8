@@ -94,7 +94,7 @@ export function createIdentityMetadataTable(
     ['Satuan Pendidikan', `: ${school.name || '-'}`],
     ['NPSN', `: ${school.npsn || '-'}`],
     ['Alamat', `: ${school.address || '-'}`],
-    ['Kurikulum', `: ${academicSetting.curriculum || 'Kurikulum Merdeka'}`],
+    ['Kurikulum', `: ${academicSetting.curriculum || '-'}`],
     ['Mata Pelajaran', `: ${academicSetting.subject || '-'}`],
     classRow,
     ['Tahun Ajaran / Semester', `: ${academicSetting.academicYear || '-'} / ${academicSetting.semester || '-'}`],

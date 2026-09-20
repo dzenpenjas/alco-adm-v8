@@ -903,6 +903,161 @@ async function runAudit9C8Regression() {
     assert(model.scoringGuides.list.length === 2, 'Scoring guides must be shared');
   });
 
+  // Test 21: Renderers do not fabricate fake domain defaults (no fake PNS, SMP, 1 (Ganjil), or Kurikulum Merdeka)
+  await test('9C.8.21 — Renderers do not fabricate fake domain defaults (no fake PNS, SMP, 1 (Ganjil), or Kurikulum Merdeka)', async () => {
+    const minimalBlankContext: DocumentGenerationContext = {
+      school: { ...mockSchool, name: '' },
+      profile: { ...mockProfile, name: '' },
+      academicSetting: { ...mockAcademicSetting, curriculum: '', semester: '' as any, academicYear: '' },
+      documentMode: 'blank',
+    };
+
+    const blankSnapshot = createAssessmentDocumentSnapshot(minimalBlankContext);
+    const blankModel = buildNormalizedAssessmentDocumentModel(blankSnapshot);
+
+    assert(blankModel.metadata.curriculum === '', 'Curriculum must not be fabricated in blank snapshot');
+    assert(blankModel.metadata.semester === '', 'Semester must not be fabricated to 1 (Ganjil)');
+    assert(blankModel.metadata.academicYear === '', 'AcademicYear must remain empty if missing');
+    assert(blankModel.metadata.teacherName === '', 'Teacher name must remain empty if missing');
+
+    const blankDocx = await renderAssessmentDocx(blankModel);
+    const blankPdf = renderAssessmentPdf(blankModel);
+
+    assert(Boolean(blankDocx), 'DOCX Blob must be produced without errors for blank model');
+    assert(Boolean(blankPdf), 'PDF Blob must be produced without errors for blank model');
+
+    // Also test canonical model with empty optional fields (e.g. non-PNS / missing NIP / missing phase / missing semester)
+    const settingWithoutSemester: AcademicSetting = {
+      ...mockAcademicSetting,
+      semester: '' as any,
+      phase: '',
+    };
+
+    const profileWithoutNipOrPns: TeacherProfile = {
+      ...mockProfile,
+      nip: '',
+      status: 'HONORER' as any,
+    };
+
+    const canonicalContext: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: profileWithoutNipOrPns,
+      academicSetting: settingWithoutSemester,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [mockValidSiapPackage],
+      documentDate: '2026-09-20',
+    };
+
+    const canSnap = createAssessmentDocumentSnapshot(canonicalContext);
+    const canModel = buildNormalizedAssessmentDocumentModel(canSnap);
+
+    assert(canModel.metadata.semester === '', 'Semester must not be fabricated to 1 (Ganjil)');
+    assert(canModel.metadata.phase === '', 'Phase must remain empty if not set');
+
+    const canDocx = await renderAssessmentDocx(canModel);
+    const canPdf = renderAssessmentPdf(canModel);
+
+    assert(Boolean(canDocx), 'Canonical DOCX Blob must be produced without errors');
+    assert(Boolean(canPdf), 'Canonical PDF Blob must be produced without errors');
+  });
+
+  // Test 22: Canonical package revision is fail-closed (missing/invalid revision blocks export without defaulting to Rev 1)
+  await test('9C.8.22 — Canonical package revision is fail-closed (missing/invalid revision blocks export without defaulting to Rev 1)', async () => {
+    const invalidRevPkg: AssessmentPackage = {
+      ...mockValidSiapPackage,
+      id: 'pkg-invalid-rev',
+      revision: 0, // invalid revision < 1
+    };
+
+    const contextWithInvalidRev: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: mockTP,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [invalidRevPkg],
+      documentDate: '2026-09-20',
+    };
+
+    const eligibility = checkAssessmentExportEligibility(contextWithInvalidRev);
+    assert(eligibility.eligible === false, 'Invalid revision package must not be eligible for export');
+    assert(
+      eligibility.blockers.some((b) => b.includes('nomor revisi tidak valid')),
+      'Eligibility blockers must cite invalid revision'
+    );
+
+    let snapshotThrew = false;
+    try {
+      createAssessmentDocumentSnapshot(contextWithInvalidRev);
+    } catch (err: any) {
+      snapshotThrew = true;
+      assert(
+        err.message.toLowerCase().includes('nomor revisi tidak valid') ||
+          err.message.toLowerCase().includes('revisi') && err.message.toLowerCase().includes('tidak valid'),
+        'Error message must cite invalid revision'
+      );
+    }
+    assert(snapshotThrew, 'createAssessmentDocumentSnapshot must throw on invalid package revision');
+  });
+
+  // Test 23: Missing TP/KD code resolution does not fabricate fake fallback 'TP' / 'KD' prefixes
+  await test('9C.8.23 — Missing TP/KD code resolution does not fabricate fake fallback "TP" / "KD" prefixes', async () => {
+    const tpWithoutCode: TPData = {
+      id: 'tp-no-code',
+      academicSettingId: 'setting-1',
+      items: [
+        {
+          id: 'tp-no-code-1',
+          code: '', // Explicitly empty code
+          statement: 'Mampu menganalisis struktur data grafik',
+          competence: 'Menganalisis',
+          contentScope: 'Struktur Data',
+          order: 1,
+        },
+      ],
+      updatedAt: '2026-01-01T00:00:00Z',
+    };
+
+    const pkgWithNoCodeTP: AssessmentPackage = {
+      ...mockValidSiapPackage,
+      id: 'pkg-tp-no-code',
+      blueprintItems: [
+        {
+          id: 'bp-no-code',
+          objectiveRefId: 'tp-no-code-1',
+          assessmentIndicator: 'Siswa dapat menentukan derajat simpul grafik',
+          materialOrContext: 'Grafik',
+          instrumentType: 'WRITTEN_TEST',
+          instrumentItemIds: [],
+          order: 1,
+        },
+      ],
+    };
+
+    const contextNoCode: DocumentGenerationContext = {
+      school: mockSchool,
+      profile: mockProfile,
+      academicSetting: mockAcademicSetting,
+      tp: tpWithoutCode,
+      assessmentPlans: [mockPlan],
+      assessmentPackages: [pkgWithNoCodeTP],
+      documentDate: '2026-09-20',
+    };
+
+    const snapshot = createAssessmentDocumentSnapshot(contextNoCode);
+    assert(snapshot.resolvedObjectives['tp-no-code-1'].code === '', 'Code must be empty string, not "TP"');
+
+    const model = buildNormalizedAssessmentDocumentModel(snapshot);
+    const row = model.kisiKisi.rows[0];
+    assert(
+      row.tpCodeAndStatement === 'Mampu menganalisis struktur data grafik',
+      `tpCodeAndStatement must not contain [TP] prefix: got "${row.tpCodeAndStatement}"`
+    );
+    assert(!row.tpCodeAndStatement.includes('[TP]'), 'tpCodeAndStatement must not contain [TP]');
+    assert(!row.tpCodeAndStatement.includes('[]'), 'tpCodeAndStatement must not contain empty brackets []');
+  });
+
   console.log(`\nAll ${passedCount} tests in Audit 9C.8 regression suite PASSED successfully!\n`);
 }
 

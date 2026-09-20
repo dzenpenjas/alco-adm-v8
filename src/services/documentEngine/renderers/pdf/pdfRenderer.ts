@@ -177,7 +177,7 @@ export class PdfDocumentBuilder {
         'Guru Pengampu',
         `: ${profile.name || '-'}`,
         'Kurikulum',
-        `: ${academicSetting.curriculum || 'Kurikulum Merdeka'}`,
+        `: ${academicSetting.curriculum || '-'}`,
       ],
       [
         'NIP Guru',
@@ -228,6 +228,186 @@ export class PdfDocumentBuilder {
     this.doc.setLineWidth(0.3);
     this.doc.line(this.marginLeft, this.currentY - 2, this.pageWidth - this.marginRight, this.currentY - 2);
     this.currentY += 2;
+  }
+
+  public renderNormalizedIdentityBlock(
+    metadata: {
+      schoolName?: string;
+      npsn?: string;
+      schoolAddress?: string;
+      curriculum?: string;
+      subject?: string;
+      grade?: string;
+      phase?: string;
+      academicYear?: string;
+      semester?: string;
+      teacherName?: string;
+      teacherNip?: string;
+    },
+    extraRows: [string, string][] = []
+  ): void {
+    const isK13Curriculum =
+      metadata.curriculum &&
+      (metadata.curriculum.includes('2013') || metadata.curriculum.includes('K13'));
+
+    const classLabel = isK13Curriculum ? 'Tingkat / Kelas' : 'Fase / Kelas';
+    const classValue = isK13Curriculum
+      ? `: ${metadata.grade || '-'}`
+      : metadata.phase
+      ? `: ${metadata.phase} / ${metadata.grade || '-'}`
+      : `: ${metadata.grade || '-'}`;
+
+    const academicYearSemester =
+      metadata.academicYear && metadata.semester
+        ? `${metadata.academicYear} (${metadata.semester})`
+        : metadata.academicYear || metadata.semester || '-';
+
+    const rows: [string, string, string, string][] = [
+      [
+        'Satuan Pendidikan',
+        `: ${metadata.schoolName || '-'}`,
+        'Mata Pelajaran',
+        `: ${metadata.subject || '-'}`,
+      ],
+      [
+        'NPSN',
+        `: ${metadata.npsn || '-'}`,
+        classLabel,
+        classValue,
+      ],
+      [
+        'Alamat',
+        `: ${metadata.schoolAddress || '-'}`,
+        'Tahun Ajaran',
+        `: ${academicYearSemester}`,
+      ],
+      [
+        'Guru Pengampu',
+        `: ${metadata.teacherName || '-'}`,
+        'Kurikulum',
+        `: ${metadata.curriculum || '-'}`,
+      ],
+      [
+        'NIP Guru',
+        `: ${metadata.teacherNip || '-'}`,
+        '',
+        '',
+      ],
+    ];
+
+    if (extraRows && extraRows.length > 0) {
+      for (let i = 0; i < extraRows.length; i += 2) {
+        const first = extraRows[i];
+        const second = extraRows[i + 1];
+        rows.push([
+          first ? first[0] : '',
+          first ? (first[1].startsWith(':') ? first[1] : `: ${first[1]}`) : '',
+          second ? second[0] : '',
+          second ? (second[1].startsWith(':') ? second[1] : `: ${second[1]}`) : '',
+        ]);
+      }
+    }
+
+    const tableOptions: UserOptions = {
+      startY: this.currentY,
+      margin: { left: this.marginLeft, right: this.marginRight },
+      body: rows,
+      theme: 'plain',
+      styles: {
+        fontSize: PDF_THEME.sizes.body,
+        cellPadding: { top: 0.8, bottom: 0.8, left: 1, right: 1 },
+        textColor: [30, 41, 59],
+        overflow: 'linebreak',
+      },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 36 },
+        1: { cellWidth: this.orientation === 'landscape' ? 95 : 55 },
+        2: { fontStyle: 'bold', cellWidth: 34 },
+        3: { cellWidth: 'auto' },
+      },
+    };
+
+    autoTable(this.doc, tableOptions);
+    const finalY = (this.doc as any).lastAutoTable?.finalY;
+    this.currentY = (finalY || this.currentY) + 5;
+
+    // Subtle line below identity
+    this.doc.setDrawColor(PDF_THEME.colors.border[0], PDF_THEME.colors.border[1], PDF_THEME.colors.border[2]);
+    this.doc.setLineWidth(0.3);
+    this.doc.line(this.marginLeft, this.currentY - 2, this.pageWidth - this.marginRight, this.currentY - 2);
+    this.currentY += 2;
+  }
+
+  public renderNormalizedSignatureBlock(signoff: {
+    locationAndDate: string;
+    principalTitle: string;
+    principalName: string;
+    principalNip?: string;
+    teacherTitle: string;
+    teacherName: string;
+    teacherNip?: string;
+    isBlankMode: boolean;
+  }): void {
+    this.checkPageBreak(40);
+
+    const leftColX = this.marginLeft + 10;
+    const rightColX = this.pageWidth - this.marginRight - 70;
+    let sigY = this.currentY + 6;
+
+    this.doc.setFont(PDF_THEME.fonts.base, 'normal');
+    this.doc.setFontSize(PDF_THEME.sizes.body);
+    this.doc.setTextColor(PDF_THEME.colors.text[0], PDF_THEME.colors.text[1], PDF_THEME.colors.text[2]);
+
+    if (signoff.isBlankMode) {
+      // Right Column: Date placeholder
+      this.doc.text('....................., .................... 20....', rightColX, sigY);
+      sigY += 4.5;
+
+      this.doc.text('Mengetahui,', leftColX, sigY);
+      this.doc.text(signoff.teacherTitle || 'Guru Mata Pelajaran', rightColX, sigY);
+      sigY += 4.5;
+
+      this.doc.text(signoff.principalTitle || 'Kepala Sekolah', leftColX, sigY);
+      sigY += 22;
+
+      this.doc.setFont(PDF_THEME.fonts.bold, 'bold');
+      this.doc.text('(................................................)', leftColX, sigY);
+      this.doc.text('(................................................)', rightColX, sigY);
+      sigY += 4.5;
+
+      this.doc.setFont(PDF_THEME.fonts.base, 'normal');
+      this.doc.setFontSize(PDF_THEME.sizes.small);
+      this.doc.setTextColor(PDF_THEME.colors.textLight[0], PDF_THEME.colors.textLight[1], PDF_THEME.colors.textLight[2]);
+      this.doc.text('NIP. ....................', leftColX, sigY);
+      this.doc.text('NIP. ....................', rightColX, sigY);
+    } else {
+      // Right Column: Date
+      this.doc.text(signoff.locationAndDate, rightColX, sigY);
+      sigY += 4.5;
+
+      // Titles
+      this.doc.text('Mengetahui,', leftColX, sigY);
+      this.doc.text(signoff.teacherTitle || 'Guru Mata Pelajaran', rightColX, sigY);
+      sigY += 4.5;
+
+      this.doc.text(signoff.principalTitle || 'Kepala Sekolah', leftColX, sigY);
+      sigY += 22; // Space for physical signature
+
+      // Names (Underlined / Bold)
+      this.doc.setFont(PDF_THEME.fonts.bold, 'bold');
+      this.doc.text(signoff.principalName || '(........................)', leftColX, sigY);
+      this.doc.text(signoff.teacherName || '(........................)', rightColX, sigY);
+      sigY += 4.5;
+
+      // NIPs
+      this.doc.setFont(PDF_THEME.fonts.base, 'normal');
+      this.doc.setFontSize(PDF_THEME.sizes.small);
+      this.doc.setTextColor(PDF_THEME.colors.textLight[0], PDF_THEME.colors.textLight[1], PDF_THEME.colors.textLight[2]);
+      this.doc.text(signoff.principalNip ? `NIP. ${signoff.principalNip}` : 'NIP. ....................', leftColX, sigY);
+      this.doc.text(signoff.teacherNip ? `NIP. ${signoff.teacherNip}` : 'NIP. ....................', rightColX, sigY);
+    }
+
+    this.currentY = sigY + 8;
   }
 
   public renderHeading(text: string, level: 1 | 2 | 3 = 1): void {
