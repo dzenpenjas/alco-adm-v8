@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import saveAs from 'file-saver';
 import { DocumentType, DocumentGenerationContext, DocumentValidationResult, GeneratedDocumentResult, DocumentCatalogItem } from './types';
-import { DocumentSnapshot, AppDocumentRecord } from '../../types';
+import { DocumentSnapshot, AppDocumentRecord, LearningPlan } from '../../types';
 import { getCurriculumType } from '../curriculumRules';
 import { resolveEffectiveContext, createDocumentSnapshot } from './snapshot';
 import { generateAnalisisCpTp } from './generators/analisisCpTpGenerator';

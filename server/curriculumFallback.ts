@@ -79,14 +79,17 @@ export interface FallbackGenerateTPParams {
 }
 
 export function fallbackGenerateTP(params: FallbackGenerateTPParams) {
-  const subject = params.subject || 'Mata Pelajaran';
-  const grade = params.grade || 'Kelas 4';
-  const phase = params.phase || 'Fase B';
-  const count = params.count || 4;
+  const cpGeneralText = (params.cpGeneral || '').trim();
+  const validElements = (params.cpElements || []).filter((e) => e && e.content && e.content.trim().length > 0);
 
-  const elements = params.cpElements && params.cpElements.length > 0
-    ? params.cpElements
-    : [{ name: 'Umum', content: params.cpGeneral || `Pemahaman dan Keterampilan Proses ${subject}` }];
+  // INSUFFICIENT CANONICAL SOURCE -> FAIL/BLOCK (return empty)
+  if (!cpGeneralText && validElements.length === 0) {
+    return [];
+  }
+
+  const subject = params.subject || '';
+  const grade = params.grade || '';
+  const count = params.count || 4;
 
   const tpItems: Array<{
     code: string;
@@ -95,63 +98,45 @@ export function fallbackGenerateTP(params: FallbackGenerateTPParams) {
     competence: string;
     contentScope: string;
     p3Dimensions: string[];
+    graduateProfileDimensions?: string[];
   }> = [];
 
-  const gradeNumber = grade.replace(/\D/g, '') || '4';
+  const gradeDigits = grade.replace(/\D/g, '');
+  const codePrefix = gradeDigits ? `TP ${gradeDigits}.` : 'TP ';
   let counter = 1;
 
-  for (let i = 0; i < elements.length && tpItems.length < count; i++) {
-    const elem = elements[i];
-    const elemName = elem.name || `Elemen ${i + 1}`;
-    const cleanContent = elem.content ? elem.content.slice(0, 80).trim() : `materi ${subject}`;
+  if (validElements.length > 0) {
+    for (let i = 0; i < validElements.length && tpItems.length < count; i++) {
+      const elem = validElements[i];
+      const elemName = elem.name ? elem.name.trim() : '';
+      const cleanContent = elem.content ? elem.content.slice(0, 100).trim() : '';
 
-    // TP 1 for this element
+      if (!cleanContent) continue;
+
+      tpItems.push({
+        code: `${codePrefix}${counter++}`,
+        elementName: elemName,
+        statement: `Murid mampu memahami dan menerapkan konsep ${elemName ? elemName.toLowerCase() + ' terkait ' : ''}${cleanContent} secara mandiri dan kritis.`,
+        competence: 'Memahami & Menerapkan',
+        contentScope: cleanContent,
+        p3Dimensions: ['Bernalar Kritis', 'Mandiri'],
+        graduateProfileDimensions: ['Bernalar Kritis', 'Mandiri'],
+      });
+    }
+  } else if (cpGeneralText) {
+    // Generate derived TP from general CP statement without inventing fake element 'Umum'
     tpItems.push({
-      code: `TP ${gradeNumber}.${counter++}`,
-      elementName: elemName,
-      statement: `Peserta didik mampu memahami dan menjelaskan konsep ${elemName.toLowerCase()} terkait ${cleanContent} secara tepat dan mandiri.`,
+      code: `${codePrefix}${counter++}`,
+      elementName: '',
+      statement: `Murid mampu memahami dan menjelaskan capaian ${cpGeneralText.slice(0, 100).trim()} secara komprehensif.`,
       competence: 'Memahami & Menjelaskan',
-      contentScope: `Konsep Dasar ${elemName}`,
+      contentScope: cpGeneralText.slice(0, 80).trim(),
       p3Dimensions: ['Bernalar Kritis', 'Mandiri'],
-    });
-
-    if (tpItems.length < count) {
-      // TP 2 for this element
-      tpItems.push({
-        code: `TP ${gradeNumber}.${counter++}`,
-        elementName: elemName,
-        statement: `Peserta didik mampu mengidentifikasi, menganalisis, dan menerapkan pengetahuan ${elemName.toLowerCase()} dalam pemecahan masalah kontekstual.`,
-        competence: 'Menganalisis & Menerapkan',
-        contentScope: `Aplikasi & Penerapan ${elemName}`,
-        p3Dimensions: ['Bernalar Kritis', 'Kreatif'],
-      });
-    }
-
-    if (tpItems.length < count) {
-      // TP 3 for this element
-      tpItems.push({
-        code: `TP ${gradeNumber}.${counter++}`,
-        elementName: elemName,
-        statement: `Peserta didik mampu menyajikan hasil eksplorasi dan karya kolaboratif terkait ${cleanContent} dengan komunikatif dan bertanggung jawab.`,
-        competence: 'Menyajikan & Mengomunikasikan',
-        contentScope: `Eksplorasi & Presentasi Hasil Belajar`,
-        p3Dimensions: ['Gotong Royong', 'Kreatif'],
-      });
-    }
-  }
-
-  // Ensure minimum count reached
-  while (tpItems.length < count) {
-    tpItems.push({
-      code: `TP ${gradeNumber}.${counter++}`,
-      elementName: 'Keterampilan Proses',
-      statement: `Peserta didik mampu mengevaluasi dan merefleksikan proses pembelajaran ${subject} untuk perbaikan berkelanjutan.`,
-      competence: 'Mengevaluasi & Merefleksi',
-      contentScope: `Refleksi dan Evaluasi Hasil Belajar ${subject}`,
-      p3Dimensions: ['Mandiri', 'Bernalar Kritis'],
+      graduateProfileDimensions: ['Bernalar Kritis', 'Mandiri'],
     });
   }
 
+  // Strictly return only what was derived from canonical source. NO filler TPs added.
   return tpItems.slice(0, count);
 }
 
@@ -242,42 +227,41 @@ export interface FallbackGenerateLearningPlanParams {
 }
 
 export function fallbackGenerateLearningPlan(params: FallbackGenerateLearningPlanParams) {
-  const subject = params.academicSetting?.subject || 'Mata Pelajaran';
-  const grade = params.academicSetting?.grade || 'Kelas';
-  const phase = params.academicSetting?.phase || 'Fase';
+  const subject = params.academicSetting?.subject || '';
+  const grade = params.academicSetting?.grade || '';
   const tps = params.tps || [];
   const primaryTp = tps[0];
-  const topicName = params.topic || primaryTp?.contentScope || primaryTp?.statement || `Topik Pembelajaran ${subject}`;
+  const topicName = params.topic || primaryTp?.contentScope || primaryTp?.statement || `Topik Pembelajaran ${subject}`.trim();
   const tpCodeStr = primaryTp?.code ? `[${primaryTp.code}] ` : '';
   const linkedTpIds = tps.map((t) => t.id).filter(Boolean) as string[];
 
   return {
     title: `Draf Modul Ajar: ${topicName}`,
     topic: topicName,
-    meaningfulUnderstanding: `Peserta didik memahami konsep esensial ${topicName} dan mampu menerapkannya secara mandiri serta kritis dalam konteks kehidupan sehari-hari.`,
+    meaningfulUnderstanding: `Murid memahami konsep esensial ${topicName} dan mampu menerapkannya secara mandiri serta kritis dalam konteks kehidupan sehari-hari.`,
     triggerQuestions: [
-      `Mengapa pemahaman tentang ${topicName} penting dalam kehidupan kita sehari-hari?`,
+      `Mengapa pemahaman tentang ${topicName} penting dalam kehidupan sehari-hari?`,
       `Bagaimana kita dapat menerapkan konsep ini untuk menyelesaikan permasalahan di lingkungan sekitar?`
     ],
     learningExperiences: [
       {
         id: `exp-1-${Date.now()}`,
         phase: 'UNDERSTAND',
-        description: `Peserta didik mengamati contoh kontekstual, mendiskusikan konsep dasar ${topicName}, dan mengidentifikasi bagian-bagian utamanya.`,
+        description: `Murid mengamati contoh kontekstual, mendiskusikan konsep dasar ${topicName}, dan mengidentifikasi bagian-bagian utamanya.`,
         durationMinutes: 35,
         linkedTpIds
       },
       {
         id: `exp-2-${Date.now()}`,
         phase: 'APPLY',
-        description: `Peserta didik secara berpasangan/kelompok melakukan eksplorasi dan menyelesaikan latihan penerapan ${topicName}.`,
+        description: `Murid secara berpasangan/kelompok melakukan eksplorasi dan menyelesaikan latihan penerapan ${topicName}.`,
         durationMinutes: 45,
         linkedTpIds
       },
       {
         id: `exp-3-${Date.now()}`,
         phase: 'REFLECT',
-        description: `Peserta didik menyimpulkan pemahaman, melakukan refleksi diri tentang tantangan belajar, dan merencanakan langkah perbaikan.`,
+        description: `Murid menyimpulkan pemahaman, melakukan refleksi diri tentang tantangan belajar, dan merencanakan langkah perbaikan.`,
         durationMinutes: 20,
         linkedTpIds
       }
@@ -292,7 +276,7 @@ export function fallbackGenerateLearningPlan(params: FallbackGenerateLearningPla
         {
           id: `step-open-${Date.now()}`,
           stepName: 'Kegiatan Awal / Apersepsi',
-          description: `Guru menyapa peserta didik, memeriksa presensi, menyampaikan tujuan pembelajaran ${tpCodeStr}${topicName}, serta memberikan pertanyaan pemantik.`,
+          description: `Guru menyapa murid, memeriksa presensi, menyampaikan tujuan pembelajaran ${tpCodeStr}${topicName}, serta memberikan pertanyaan pemantik.`,
           durationMinutes: 10
         }
       ],
@@ -300,7 +284,7 @@ export function fallbackGenerateLearningPlan(params: FallbackGenerateLearningPla
         {
           id: `step-core-${Date.now()}`,
           stepName: 'Kegiatan Inti (Eksplorasi & Aplikasi)',
-          description: `Peserta didik terlibat aktif dalam aktivitas berkesadaran dan pemecahan masalah ${topicName} secara terbimbing dan mandiri.`,
+          description: `Murid terlibat aktif dalam aktivitas berkesadaran dan pemecahan masalah ${topicName} secara terbimbing dan mandiri.`,
           durationMinutes: 70
         }
       ],
@@ -308,7 +292,7 @@ export function fallbackGenerateLearningPlan(params: FallbackGenerateLearningPla
         {
           id: `step-close-${Date.now()}`,
           stepName: 'Kegiatan Penutup & Refleksi',
-          description: `Guru dan peserta didik merangkum poin penting pembelajaran, melakukan refleksi, dan menyampaikan tindak lanjut untuk pertemuan berikutnya.`,
+          description: `Guru dan murid merangkum poin penting pembelajaran, melakukan refleksi, dan menyampaikan tindak lanjut untuk pertemuan berikutnya.`,
           durationMinutes: 10
         }
       ]
@@ -319,7 +303,7 @@ export function fallbackGenerateLearningPlan(params: FallbackGenerateLearningPla
           id: `asm-init-${Date.now()}`,
           type: 'INITIAL',
           technique: 'Tanya Jawab / Diagnostik Singkat',
-          description: `Mengecek kesiapan dan pengetahuan awal peserta didik mengenai ${topicName}.`,
+          description: `Mengecek kesiapan dan pengetahuan awal murid mengenai ${topicName}.`,
           linkedTpIds
         }
       ],
@@ -328,7 +312,7 @@ export function fallbackGenerateLearningPlan(params: FallbackGenerateLearningPla
           id: `asm-form-${Date.now()}`,
           type: 'FORMATIVE',
           technique: 'Observasi Performa & Diskusi Kelompok',
-          description: `Memantau keterlibatan, pemahaman konsep, dan sikap kolaboratif peserta didik selama proses belajar.`,
+          description: `Memantau keterlibatan, pemahaman konsep, dan sikap kolaboratif murid selama proses belajar.`,
           linkedTpIds
         }
       ],
@@ -343,19 +327,19 @@ export function fallbackGenerateLearningPlan(params: FallbackGenerateLearningPla
       ]
     },
     differentiation: {
-      content: `Penyediaan materi visual/teks sesuai kesiapan belajar peserta didik.`,
-      process: `Bimbingan khusus bagi peserta didik yang memerlukan pendampingan dan tantangan tambahan bagi yang cepat paham.`,
-      product: `Peserta didik diberikan pilihan bentuk penyajian hasil tugas (diagram, tulisan, atau presentasi lisan).`
+      content: `Penyediaan materi visual/teks sesuai kesiapan belajar murid.`,
+      process: `Bimbingan khusus bagi murid yang memerlukan pendampingan dan tantangan tambahan bagi yang cepat paham.`,
+      product: `Murid diberikan pilihan bentuk penyajian hasil tugas (diagram, tulisan, atau presentasi lisan).`
     },
     reflection: {
-      teacher: `Apakah seluruh peserta didik mencapai target pembelajaran? Kendala apa yang dihadapi dan bagaimana solusinya?`,
+      teacher: `Apakah seluruh murid mencapai target pembelajaran? Kendala apa yang dihadapi dan bagaimana solusinya?`,
       student: `Bagian mana dari pembelajaran ${topicName} yang paling menarik dan bagian mana yang masih memerlukan latihan?`
     },
-    enrichmentPlan: `Pemberian soal tantangan kontekstual tingkat lanjut bagi peserta didik dengan pencapaian di atas rata-rata.`,
-    remedialPlan: `Bimbingan perorangan/kelompok kecil dan penyederhanaan latihan bagi peserta didik yang belum tuntas.`,
+    enrichmentPlan: `Pemberian soal tantangan kontekstual tingkat lanjut bagi murid dengan pencapaian di atas rata-rata.`,
+    remedialPlan: `Bimbingan perorangan/kelompok kecil dan penyederhanaan latihan bagi murid yang belum tuntas.`,
     resources: [
-      { id: `res-1-${Date.now()}`, title: `Buku Siswa ${subject} ${grade}` },
-      { id: `res-2-${Date.now()}`, title: `Lembar Kerja Peserta Didik (LKPD) ${topicName}` }
+      { id: `res-1-${Date.now()}`, title: `Buku Siswa ${subject} ${grade}`.trim() },
+      { id: `res-2-${Date.now()}`, title: `Lembar Kerja Murid (LKM) ${topicName}` }
     ],
     allocatedJP: params.atpItems && params.atpItems.length > 0 ? params.atpItems.reduce((acc, curr) => acc + (curr.jp || 2), 0) : 2
   };

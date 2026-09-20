@@ -440,6 +440,43 @@ Berikan versi teks hasil penyempurnaan dalam bahasa Indonesia yang baku dan eleg
   res.json({ success: true, refinedText: refined, engine: 'pedagogical_engine' });
 });
 
+// Runtime validator for AI Learning Plan response
+function validateAILearningPlanPayload(data: any): { isValid: boolean; reason?: string } {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { isValid: false, reason: 'Payload AI bukan berupa objek valid' };
+  }
+
+  if (!Array.isArray(data.learningExperiences) || data.learningExperiences.length === 0) {
+    return { isValid: false, reason: 'Daftar Pengalaman Belajar (learningExperiences) kosong atau bukan array' };
+  }
+
+  const validPhases = ['UNDERSTAND', 'APPLY', 'REFLECT'];
+  for (let i = 0; i < data.learningExperiences.length; i++) {
+    const exp = data.learningExperiences[i];
+    if (!exp || typeof exp !== 'object') {
+      return { isValid: false, reason: `Butir pengalaman belajar ke-${i + 1} bukan berupa objek` };
+    }
+    if (!validPhases.includes(exp.phase)) {
+      return { isValid: false, reason: `Fase pengalaman belajar ke-${i + 1} ('${exp.phase}') tidak valid. Pilihan sah: UNDERSTAND, APPLY, REFLECT` };
+    }
+    if (!exp.description || typeof exp.description !== 'string' || exp.description.trim() === '') {
+      return { isValid: false, reason: `Deskripsi pengalaman belajar ke-${i + 1} kosong` };
+    }
+  }
+
+  if (data.triggerQuestions !== undefined && !Array.isArray(data.triggerQuestions)) {
+    return { isValid: false, reason: 'Pertanyaan pemantik (triggerQuestions) harus berupa array' };
+  }
+  if (data.resources !== undefined && !Array.isArray(data.resources)) {
+    return { isValid: false, reason: 'Sumber belajar (resources) harus berupa array' };
+  }
+  if (data.graduateProfileDimensions !== undefined && !Array.isArray(data.graduateProfileDimensions)) {
+    return { isValid: false, reason: 'Dimensi Profil Lulusan harus berupa array' };
+  }
+
+  return { isValid: true };
+}
+
 // Endpoint: AI Generate Learning Plan (Modul Ajar DRAFT)
 app.post('/api/ai/generate-learning-plan', async (req, res) => {
   const { academicSetting, tps, atpItems, topic } = req.body || {};
@@ -448,13 +485,16 @@ app.post('/api/ai/generate-learning-plan', async (req, res) => {
     return res.status(400).json({ error: 'At least one Purpose of Learning (TP) is required to generate a Learning Plan' });
   }
 
-  if (process.env.GEMINI_API_KEY) {
-    try {
-      const subject = academicSetting?.subject || 'Mata Pelajaran';
-      const grade = academicSetting?.grade || 'Kelas';
-      const phase = academicSetting?.phase || 'Fase';
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(503).json({ error: 'Layanan AI belum dikonfigurasi (GEMINI_API_KEY tidak terpasang).' });
+  }
 
-      const prompt = `Anda adalah spesialis penyusun Modul Ajar / RPP Berdiferensiasi Kurikulum Merdeka 2026 (Deep Learning & Kemendikdasmen).
+  try {
+    const subject = academicSetting?.subject || '';
+    const grade = academicSetting?.grade || '';
+    const phase = academicSetting?.phase || '';
+
+    const prompt = `Anda adalah spesialis penyusun Modul Ajar / RPP Berdiferensiasi Kurikulum Merdeka 2026 (Deep Learning & Kemendikdasmen).
 Susun draf Modul Ajar pedagogis yang komprehensif berdasarkan data rujukan berikut:
 
 MATA PELAJARAN: ${subject}
@@ -469,164 +509,167 @@ ${atpItems && atpItems.length > 0 ? atpItems.map((a: any, i: number) => `${i + 1
 
 INSTRUKSI:
 1. Susun Pengalaman Belajar (learningExperiences) dengan struktur 3 fase utama (UNDERSTAND, APPLY, REFLECT) sesuai panduan 2026.
-2. Sediakan Rencana Asesmen (Asesmen Diagnostik Awal, Formatif, dan Sumatif).
-3. Sediakan Rencana Diferensiasi (Konten, Proses, Produk).
-4. Buat kalimat pemahaman bermakna dan pertanyaan pemantik yang relevan.
+2. Gunakan terminologi "Murid" (bukan peserta didik) dan "Dimensi Profil Lulusan".
+3. Sediakan Rencana Asesmen (Asesmen Diagnostik Awal, Formatif, dan Sumatif).
+4. Sediakan Rencana Diferensiasi (Konten, Proses, Produk).
+5. Buat kalimat pemahaman bermakna dan pertanyaan pemantik yang relevan.
 
 Kembalikan output JSON sesuai schema.`;
 
-      const response = await generateContentWithRetry({
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              topic: { type: Type.STRING },
-              meaningfulUnderstanding: { type: Type.STRING },
-              triggerQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
-              learningExperiences: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    phase: { type: Type.STRING, description: 'MUST be UNDERSTAND, APPLY, or REFLECT' },
-                    description: { type: Type.STRING },
-                    durationMinutes: { type: Type.NUMBER },
-                  },
-                  required: ['phase', 'description'],
-                },
-              },
-              deepLearningContext: {
+    const response = await generateContentWithRetry({
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            topic: { type: Type.STRING },
+            meaningfulUnderstanding: { type: Type.STRING },
+            triggerQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+            learningExperiences: {
+              type: Type.ARRAY,
+              items: {
                 type: Type.OBJECT,
                 properties: {
-                  principles: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  id: { type: Type.STRING },
+                  phase: { type: Type.STRING, description: 'MUST be UNDERSTAND, APPLY, or REFLECT' },
+                  description: { type: Type.STRING },
+                  durationMinutes: { type: Type.NUMBER },
                 },
+                required: ['phase', 'description'],
               },
-              graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
-              learningSteps: {
-                type: Type.OBJECT,
-                properties: {
-                  opening: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        stepName: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                        durationMinutes: { type: Type.NUMBER },
-                      },
-                    },
-                  },
-                  core: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        stepName: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                        durationMinutes: { type: Type.NUMBER },
-                      },
-                    },
-                  },
-                  closing: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        stepName: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                        durationMinutes: { type: Type.NUMBER },
-                      },
-                    },
-                  },
-                },
-              },
-              assessmentPlan: {
-                type: Type.OBJECT,
-                properties: {
-                  initial: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        type: { type: Type.STRING },
-                        technique: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                      },
-                    },
-                  },
-                  formative: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        type: { type: Type.STRING },
-                        technique: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                      },
-                    },
-                  },
-                  summative: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        type: { type: Type.STRING },
-                        technique: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                      },
-                    },
-                  },
-                },
-              },
-              differentiation: {
-                type: Type.OBJECT,
-                properties: {
-                  content: { type: Type.STRING },
-                  process: { type: Type.STRING },
-                  product: { type: Type.STRING },
-                },
-              },
-              reflection: {
-                type: Type.OBJECT,
-                properties: {
-                  teacher: { type: Type.STRING },
-                  student: { type: Type.STRING },
-                },
-              },
-              enrichmentPlan: { type: Type.STRING },
-              remedialPlan: { type: Type.STRING },
-              resources: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    title: { type: Type.STRING },
-                  },
-                },
-              },
-              allocatedJP: { type: Type.NUMBER },
             },
+            deepLearningContext: {
+              type: Type.OBJECT,
+              properties: {
+                principles: { type: Type.ARRAY, items: { type: Type.STRING } },
+                graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
+              },
+            },
+            graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
+            learningSteps: {
+              type: Type.OBJECT,
+              properties: {
+                opening: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      stepName: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                      durationMinutes: { type: Type.NUMBER },
+                    },
+                  },
+                },
+                core: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      stepName: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                      durationMinutes: { type: Type.NUMBER },
+                    },
+                  },
+                },
+                closing: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      stepName: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                      durationMinutes: { type: Type.NUMBER },
+                    },
+                  },
+                },
+              },
+            },
+            assessmentPlan: {
+              type: Type.OBJECT,
+              properties: {
+                initial: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      type: { type: Type.STRING },
+                      technique: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                    },
+                  },
+                },
+                formative: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      type: { type: Type.STRING },
+                      technique: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                    },
+                  },
+                },
+                summative: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      type: { type: Type.STRING },
+                      technique: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                    },
+                  },
+                },
+              },
+            },
+            differentiation: {
+              type: Type.OBJECT,
+              properties: {
+                content: { type: Type.STRING },
+                process: { type: Type.STRING },
+                product: { type: Type.STRING },
+              },
+            },
+            reflection: {
+              type: Type.OBJECT,
+              properties: {
+                teacher: { type: Type.STRING },
+                student: { type: Type.STRING },
+              },
+            },
+            enrichmentPlan: { type: Type.STRING },
+            remedialPlan: { type: Type.STRING },
+            resources: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  title: { type: Type.STRING },
+                },
+              },
+            },
+            allocatedJP: { type: Type.NUMBER },
           },
         },
-      });
+      },
+    });
 
-      const parsed = cleanAndParseJSON(response.text, null);
-      if (parsed && typeof parsed === 'object') {
-        return res.json({ success: true, data: parsed, engine: 'gemini' });
-      }
-    } catch (error: unknown) {
-      console.warn('Gemini generate learning plan failed or unconfigured, using fallback:', error);
+    const parsed = cleanAndParseJSON(response.text, null);
+    const validation = validateAILearningPlanPayload(parsed);
+
+    if (!validation.isValid) {
+      console.warn('Gemini generate learning plan output invalid:', validation.reason);
+      return res.status(500).json({ error: `Respons AI tidak memenuhi kualifikasi struktur Modul Ajar: ${validation.reason}` });
     }
-  }
 
-  const fallbackData = fallbackGenerateLearningPlan({ academicSetting, tps, atpItems, topic });
-  res.json({ success: true, data: fallbackData, engine: 'pedagogical_engine' });
+    return res.json({ success: true, data: parsed, engine: 'gemini' });
+  } catch (error: any) {
+    console.error('Gemini generate learning plan failed:', error);
+    return res.status(500).json({ error: `Gagal menyusun Draf AI Modul Ajar: ${error.message || 'Respons provider AI tidak dapat diproses'}` });
+  }
 });
 
 // 2. Endpoint: AI Assessment Package Generation (9C.4 / 9C.7)

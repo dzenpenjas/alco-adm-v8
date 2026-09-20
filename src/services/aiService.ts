@@ -1,4 +1,4 @@
-import { CPElem, TPItem, ATPItem } from '../types';
+import { CPElem, TPItem, ATPItem, AcademicSetting, LearningPlan } from '../types';
 
 export interface CPAnalysisResult {
   summary: string;
@@ -145,9 +145,29 @@ export async function generateLearningPlanWithAI(params: GenerateLearningPlanPar
     }
 
     const data = await res.json();
-    if (!data.data || typeof data.data !== 'object') {
-      throw new Error('Hasil respon AI Modul Ajar tidak valid.');
+    if (!data.data || typeof data.data !== 'object' || Array.isArray(data.data)) {
+      throw new Error('Hasil respon AI Modul Ajar tidak berbentuk objek valid.');
     }
+
+    // Runtime validation for critical structure
+    if (!Array.isArray(data.data.learningExperiences) || data.data.learningExperiences.length === 0) {
+      throw new Error('Hasil respon AI Modul Ajar tidak memuat Pengalaman Belajar (learningExperiences).');
+    }
+
+    const validPhases = ['UNDERSTAND', 'APPLY', 'REFLECT'];
+    for (let i = 0; i < data.data.learningExperiences.length; i++) {
+      const exp = data.data.learningExperiences[i];
+      if (!exp || typeof exp !== 'object') {
+        throw new Error(`Butir pengalaman belajar ke-${i + 1} tidak valid.`);
+      }
+      if (!validPhases.includes(exp.phase)) {
+        throw new Error(`Fase pengalaman belajar ke-${i + 1} ('${exp.phase}') tidak sah.`);
+      }
+      if (!exp.description || typeof exp.description !== 'string' || exp.description.trim() === '') {
+        throw new Error(`Deskripsi pengalaman belajar ke-${i + 1} kosong.`);
+      }
+    }
+
     return data.data;
   } catch (err) {
     throw new Error(formatAIErrorMessage(err, 'menyusun Modul Ajar / RPP'));

@@ -48,6 +48,70 @@ import { generateModulAjar } from '../../services/documentEngine/generators/modu
 import { generatePdfDocument } from '../../services/documentEngine/renderers/pdf/pdfDocGenerators';
 import { DocumentGenerationContext } from '../../services/documentEngine/types';
 import saveAs from 'file-saver';
+import { TPItem, ATPItem } from '../../types';
+
+export interface LearningPlanScopeUnit {
+  id: string;
+  type: 'ATP_STEP' | 'SINGLE_TP';
+  title: string;
+  stepNumber?: number;
+  tpCode?: string;
+  tpItem: TPItem;
+  atpItem?: ATPItem;
+  linkedTpIds: string[];
+  linkedAtpItemIds: string[];
+  materialScope?: string;
+  jp?: number | null;
+}
+
+export function resolveAvailableScopes(
+  tpData?: TPData | null,
+  atpData?: ATPData | null
+): LearningPlanScopeUnit[] {
+  const availableTps = tpData?.items || [];
+  if (availableTps.length === 0) return [];
+
+  const availableAtps = (atpData?.items || []).filter(
+    (a) => a.tpId && availableTps.some((t) => t.id === a.tpId)
+  );
+
+  if (availableAtps.length > 0) {
+    return availableAtps.map((atpItem, index) => {
+      const linkedTp = availableTps.find((t) => t.id === atpItem.tpId)!;
+      const stepNo = atpItem.stepNumber || index + 1;
+      const material = atpItem.materialScope || linkedTp.contentScope || linkedTp.statement;
+      const allocatedJP = atpItem.allocatedJP ?? atpItem.jp ?? null;
+
+      return {
+        id: atpItem.id,
+        type: 'ATP_STEP',
+        title: `Langkah ${stepNo}: ${material}`,
+        stepNumber: stepNo,
+        tpCode: linkedTp.code,
+        tpItem: linkedTp,
+        atpItem: atpItem,
+        linkedTpIds: [linkedTp.id],
+        linkedAtpItemIds: [atpItem.id],
+        materialScope: material,
+        jp: allocatedJP,
+      };
+    });
+  }
+
+  return availableTps.map((tpItem, index) => {
+    return {
+      id: tpItem.id,
+      type: 'SINGLE_TP',
+      title: `[${tpItem.code || `TP ${index + 1}`}] ${tpItem.statement}`,
+      tpCode: tpItem.code,
+      tpItem: tpItem,
+      linkedTpIds: [tpItem.id],
+      linkedAtpItemIds: [],
+      materialScope: tpItem.contentScope,
+      jp: null,
+    };
+  });
+}
 
 interface LearningPlanManagerProps {
   profile: TeacherProfile;
@@ -128,38 +192,49 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
     showNotification('success', 'Rancangan Pembelajaran baru dibuat (Status: DRAFT). Silakan pilih TP/ATP.');
   };
 
-  // Create AI Assisted Draft with real upstream context & Gemini integration
-  const handleCreateAIDraft = async () => {
-    const availableTps = tp?.items || [];
-    if (availableTps.length === 0) {
+  const [availableScopes, setAvailableScopes] = useState<LearningPlanScopeUnit[]>([]);
+  const [isScopeModalOpen, setIsScopeModalOpen] = useState(false);
+
+  // Trigger AI Assisted Draft with strict canonical scope (0 / 1 / >1 rule)
+  const handleCreateAIDraftClick = () => {
+    const scopes = resolveAvailableScopes(tp, atp);
+
+    if (scopes.length === 0) {
       showNotification(
         'error',
-        'Tidak ada Tujuan Pembelajaran (TP) yang tersedia untuk kelas/mapel ini. Silakan buat atau impor TP terlebih dahulu di menu Tujuan Pembelajaran.'
+        'Tidak ada Scope/Unit Pembelajaran yang valid. Silakan buat TP atau ATP terlebih dahulu di menu Tujuan Pembelajaran / ATP.'
       );
       return;
     }
 
-    // Auto-resolve upstream TPs and ATP items
-    const relevantTps = availableTps;
-    const relevantAtps = (atp?.items || []).filter((a) => relevantTps.some((t) => t.id === a.tpId));
-    const tpIds = relevantTps.map((t) => t.id);
-    const atpItemIds = relevantAtps.map((a) => a.id);
+    if (scopes.length === 1) {
+      // 1 valid scope -> auto-select -> generate
+      executeAIGenerationForScope(scopes[0]);
+    } else {
+      // >1 valid scope -> require explicit teacher selection
+      setAvailableScopes(scopes);
+      setIsScopeModalOpen(true);
+    }
+  };
 
+  const executeAIGenerationForScope = async (scope: LearningPlanScopeUnit) => {
+    setIsScopeModalOpen(false);
     setIsGeneratingAI(true);
-    showNotification('info', 'Sedang menyusun Draf AI Modul Ajar berdasarkan Tujuan Pembelajaran canonical...');
+    showNotification('info', `Sedang menyusun Draf AI Modul Ajar untuk unit '${scope.title}'...`);
 
     try {
       const aiDraftResult = await generateLearningPlanWithAI({
         academicSetting,
-        tps: relevantTps,
-        atpItems: relevantAtps,
+        tps: [scope.tpItem],
+        atpItems: scope.atpItem ? [scope.atpItem] : [],
+        topic: scope.materialScope || scope.tpItem.contentScope || scope.tpItem.statement,
       });
 
       const draftPlan = createAIDraftLearningPlan({
         academicSetting,
         curriculumType: academicSetting.curriculum?.includes('2013') || academicSetting.curriculum?.includes('K13') ? 'K13' : 'KURIKULUM_MERDEKA',
-        tpIds,
-        atpItemIds,
+        tpIds: scope.linkedTpIds,
+        atpItemIds: scope.linkedAtpItemIds,
         aiDraft: aiDraftResult,
         context: { tp, atp },
       });
@@ -169,7 +244,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
       setActiveTab('editor');
       showNotification(
         'success',
-        'Draf AI Modul Ajar berhasil disusun (Status: DRAFT). Silakan tinjau dan lengkapi komponen modul.'
+        `Draf AI Modul Ajar berhasil disusun untuk unit '${scope.title}' (Status: DRAFT). Silakan tinjau dan lengkapi komponen modul.`
       );
     } catch (err: any) {
       console.error('Failed to generate AI Learning Plan:', err);
@@ -323,7 +398,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
               Buat Manual
             </button>
             <button
-              onClick={handleCreateAIDraft}
+              onClick={handleCreateAIDraftClick}
               disabled={isGeneratingAI}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
             >
@@ -1223,6 +1298,83 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
           )}
         </div>
       </div>
+
+      {/* Modal Dialog: Scope Selector (>1 Scope Available) */}
+      {isScopeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-blue-600" />
+                <h3 className="font-bold text-slate-800 text-base">Pilih Scope / Unit Pembelajaran Modul Ajar</h3>
+              </div>
+              <button
+                onClick={() => setIsScopeModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                title="Tutup"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-3">
+              <p className="text-sm text-slate-600 mb-2">
+                Satu Modul Pembelajaran AI harus mempunyai scope pedagogis yang spesifik. Ditemukan{' '}
+                <span className="font-semibold text-slate-800">{availableScopes.length} unit pembelajaran</span>.{' '}
+                Pilih unit yang akan disusun drafnya:
+              </p>
+
+              <div className="space-y-2.5">
+                {availableScopes.map((scope) => (
+                  <div
+                    key={scope.id}
+                    className="p-4 rounded-xl border border-slate-200 hover:border-blue-400 bg-white hover:bg-blue-50/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs group"
+                  >
+                    <div className="space-y-1 pr-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {scope.stepNumber && (
+                          <span className="px-2 py-0.5 text-xs font-bold bg-blue-100 text-blue-700 rounded-md">
+                            Langkah {scope.stepNumber}
+                          </span>
+                        )}
+                        {scope.tpCode && (
+                          <span className="px-2 py-0.5 text-xs font-semibold bg-slate-100 text-slate-700 rounded-md">
+                            {scope.tpCode}
+                          </span>
+                        )}
+                        {scope.jp && (
+                          <span className="px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md">
+                            {scope.jp} JP
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="font-bold text-slate-800 text-sm">{scope.title}</h4>
+                      <p className="text-xs text-slate-600 line-clamp-2">{scope.tpItem.statement}</p>
+                    </div>
+
+                    <button
+                      onClick={() => executeAIGenerationForScope(scope)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 flex-shrink-0 shadow-2xs group-hover:scale-102 cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Susun Draf Ini</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                onClick={() => setIsScopeModalOpen(false)}
+                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
