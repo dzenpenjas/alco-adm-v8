@@ -156,7 +156,7 @@ async function runAllTests() {
     assert.strictEqual(res.regeneratedPackage?.revision, 2);
   });
 
-  // --- Section 4: LOCATOR KIND MISMATCH = FAIL CLOSED ---
+  // --- Section 4: LOCATOR KIND & IDENTITY INVARIANTS = FAIL CLOSED ---
   await runTest('4.1: locateTarget with wrong locator kind fails closed (INVALID_LOCATOR_KIND)', async () => {
     const pkg = createMockPackage({
       blueprintItems: [{ id: 'bp-1', assessmentIndicator: 'Ind 1' } as any],
@@ -174,6 +174,150 @@ async function runAllTests() {
     );
     assert.strictEqual(res.status, 'FAILED');
     assert.ok(res.issues?.[0].includes('Invalid locator kind'));
+  });
+
+  await runTest('4.2: targetId != locator.id strictly fails closed', async () => {
+    const pkg = createMockPackage({
+      instruments: [{ id: 'inst-1', type: 'WRITTEN_TEST', items: [{ id: 'item-1', prompt: 'Q1' }] } as any],
+    });
+    const res = await assessmentRegenerationService.regenerate(
+      pkg,
+      {
+        packageId: 'pkg-1',
+        expectedPackageRevision: 1,
+        target: 'ITEM_PROMPT',
+        targetId: 'item-1',
+        locator: { kind: 'INSTRUMENT_ITEM', id: 'different-id' }, // targetId mismatch!
+      },
+      { regenerate: async () => ({}) }
+    );
+    assert.strictEqual(res.status, 'FAILED');
+    assert.ok(res.issues?.[0].includes('TARGET_LOCATOR_ID_MISMATCH'));
+  });
+
+  await runTest('4.3: locateTarget with invalid locator kind for PROPOSED_ANSWER fails closed', async () => {
+    const pkg = createMockPackage({
+      answerKeys: [{ id: 'ak-1', instrumentItemId: 'item-1', value: 'A' } as any],
+    });
+    const res = await assessmentRegenerationService.regenerate(
+      pkg,
+      {
+        packageId: 'pkg-1',
+        expectedPackageRevision: 1,
+        target: 'PROPOSED_ANSWER',
+        targetId: 'ak-1',
+        locator: { kind: 'BLUEPRINT_ITEM' as any, id: 'ak-1' }, // Invalid kind for answer key!
+      },
+      { regenerate: async () => ({}) }
+    );
+    assert.strictEqual(res.status, 'FAILED');
+    assert.ok(res.issues?.[0].includes('Invalid locator kind'));
+  });
+
+  await runTest('4.4: Canonical validationFindings filtering strictly isolates findings by locator.kind', async () => {
+    const pkg = createMockPackage({
+      instruments: [{ id: 'inst-1', type: 'WRITTEN_TEST', items: [{ id: 'shared-id', prompt: 'Q1' }] } as any],
+      blueprintItems: [{ id: 'shared-id', assessmentIndicator: 'Ind 1' } as any],
+    });
+    let capturedContract: any = null;
+    const findings: AssessmentValidationFinding[] = [
+      {
+        id: 'f-item',
+        source: 'DETERMINISTIC',
+        status: 'FAIL',
+        severity: 'BLOCKING',
+        instrumentItemId: 'shared-id', // matches instrument item
+        code: 'POOR_PROMPT',
+        message: 'Prompt issue',
+      },
+      {
+        id: 'f-bp',
+        source: 'DETERMINISTIC',
+        status: 'FAIL',
+        severity: 'BLOCKING',
+        blueprintItemId: 'shared-id', // same id string, but blueprint namespace!
+        code: 'INDICATOR_QUALITY',
+        message: 'Indicator issue',
+      },
+    ];
+    const res = await assessmentRegenerationService.regenerate(
+      pkg,
+      {
+        packageId: 'pkg-1',
+        expectedPackageRevision: 1,
+        target: 'ITEM_PROMPT',
+        targetId: 'shared-id',
+        locator: { kind: 'INSTRUMENT_ITEM', id: 'shared-id' },
+      },
+      {
+        regenerate: async (contract) => {
+          capturedContract = contract;
+          return {
+            target: 'ITEM_PROMPT',
+            targetId: 'shared-id',
+            proposedChanges: { prompt: 'Fixed' },
+          };
+        },
+      },
+      { validationFindings: findings }
+    );
+    assert.strictEqual(res.status, 'REGENERATED');
+    assert.ok(capturedContract);
+    // Should ONLY contain f-item, NOT f-bp!
+    assert.strictEqual(capturedContract.validationFindings.length, 1);
+    assert.strictEqual(capturedContract.validationFindings[0].id, 'f-item');
+  });
+
+  await runTest('4.5: AI output altering locator identity fails closed', async () => {
+    const pkg = createMockPackage({
+      instruments: [{ id: 'inst-1', type: 'WRITTEN_TEST', items: [{ id: 'item-1', prompt: 'Q1' }] } as any],
+    });
+    const res = await assessmentRegenerationService.regenerate(
+      pkg,
+      {
+        packageId: 'pkg-1',
+        expectedPackageRevision: 1,
+        target: 'ITEM_PROMPT',
+        targetId: 'item-1',
+        locator: { kind: 'INSTRUMENT_ITEM', id: 'item-1' },
+      },
+      {
+        regenerate: async () => ({
+          target: 'ITEM_PROMPT',
+          targetId: 'item-1',
+          locator: { kind: 'INSTRUMENT_ITEM', id: 'item-hijacked' }, // AI tampered with locator id!
+          proposedChanges: { prompt: 'Hijacked' },
+        }),
+      }
+    );
+    assert.strictEqual(res.status, 'FAILED');
+    assert.ok(res.issues?.[0].includes('changed locator identity'));
+  });
+
+  await runTest('4.6: AI output proposing whole-package replacement fails closed', async () => {
+    const pkg = createMockPackage({
+      instruments: [{ id: 'inst-1', type: 'WRITTEN_TEST', items: [{ id: 'item-1', prompt: 'Q1' }] } as any],
+    });
+    const res = await assessmentRegenerationService.regenerate(
+      pkg,
+      {
+        packageId: 'pkg-1',
+        expectedPackageRevision: 1,
+        target: 'ITEM_PROMPT',
+        targetId: 'item-1',
+        locator: { kind: 'INSTRUMENT_ITEM', id: 'item-1' },
+      },
+      {
+        regenerate: async () => ({
+          target: 'ITEM_PROMPT',
+          targetId: 'item-1',
+          package: { all: 'replaced' },
+          proposedChanges: { prompt: 'Whole package' },
+        }),
+      }
+    );
+    assert.strictEqual(res.status, 'FAILED');
+    assert.ok(res.issues?.[0].includes('whole-package replacement'));
   });
 
   // --- Section 5: NO DATA > FAKE IDENTITY (FAIL CLOSED) ---

@@ -67,6 +67,16 @@ export class AssessmentRegenerationService {
       };
     }
 
+    // 1.1 Invariant: Target ID and Locator ID must match when locator is provided
+    if (request.locator && request.locator.id !== request.targetId) {
+      return {
+        status: 'FAILED',
+        issues: [
+          `Target ID '${request.targetId}' and locator ID '${request.locator.id}' mismatch. Exact unique resolution required (TARGET_LOCATOR_ID_MISMATCH).`,
+        ],
+      };
+    }
+
     // 2. Locate Target and Verify Existence
     const targetLocator = this.locateTarget(pkg, request.target, request.targetId, request.locator);
     if (!targetLocator.found) {
@@ -74,7 +84,7 @@ export class AssessmentRegenerationService {
         targetLocator.error === 'AMBIGUOUS_TARGET'
           ? `Target '${request.target}' with ID '${request.targetId}' is ambiguous (${targetLocator.matchCount} matches found). Exact unique resolution required.`
           : targetLocator.error === 'INVALID_LOCATOR_KIND'
-          ? `Invalid locator kind for target '${request.target}'.`
+          ? `Invalid locator kind for target '${request.target}' (INVALID_LOCATOR_KIND).`
           : `Target '${request.target}' with ID '${request.targetId}' not found in the assessment package.`;
       return {
         status: 'FAILED',
@@ -123,13 +133,37 @@ export class AssessmentRegenerationService {
       editableContent,
       gradeCalibration: extra?.gradeCalibration,
       subjectProfile: extra?.subjectProfile,
-      validationFindings: extra?.validationFindings?.filter(
-        (f) =>
+      validationFindings: extra?.validationFindings?.filter((f) => {
+        if (request.locator) {
+          switch (request.locator.kind) {
+            case 'BLUEPRINT_ITEM':
+              return f.blueprintItemId === request.locator.id;
+            case 'COVERAGE_UNIT':
+              return f.coverageUnitId === request.locator.id;
+            case 'INSTRUMENT':
+              return f.instrumentId === request.locator.id;
+            case 'INSTRUMENT_ITEM':
+              return f.instrumentItemId === request.locator.id;
+            case 'ANSWER_KEY':
+              return f.answerKeyId === request.locator.id;
+            case 'SCORING_GUIDE':
+              return f.scoringGuideId === request.locator.id;
+            case 'RUBRIC':
+              return f.rubricId === request.locator.id;
+            default:
+              return false;
+          }
+        }
+        return (
           f.blueprintItemId === request.targetId ||
           f.instrumentItemId === request.targetId ||
           f.instrumentId === request.targetId ||
-          f.coverageUnitId === request.targetId
-      ),
+          f.coverageUnitId === request.targetId ||
+          f.answerKeyId === request.targetId ||
+          f.scoringGuideId === request.targetId ||
+          f.rubricId === request.targetId
+        );
+      }),
     };
 
     // 5. Call Provider and Wrap in Try-Catch for Atomicity
@@ -377,15 +411,19 @@ export class AssessmentRegenerationService {
       }
 
       case 'PROPOSED_ANSWER': {
+        if (locator && locator.kind !== 'ANSWER_KEY' && locator.kind !== 'INSTRUMENT_ITEM') {
+          return { found: false, error: 'INVALID_LOCATOR_KIND' };
+        }
         let candidates: any[] = [];
         if (locator?.kind === 'ANSWER_KEY') {
           candidates = (pkg.answerKeys || []).filter((a) => a.id === locator.id);
         } else if (locator?.kind === 'INSTRUMENT_ITEM') {
           candidates = (pkg.answerKeys || []).filter((a) => a.instrumentItemId === locator.id);
         } else {
-          candidates = (pkg.answerKeys || []).filter(
-            (a) => a.id === targetId || a.instrumentItemId === targetId
-          );
+          // Legacy request without locator - fail closed if ambiguous across namespaces or multiple items
+          const byEntityId = (pkg.answerKeys || []).filter((a) => a.id === targetId);
+          const byItemId = (pkg.answerKeys || []).filter((a) => a.instrumentItemId === targetId);
+          candidates = Array.from(new Set([...byEntityId, ...byItemId]));
         }
         if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
         if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
@@ -411,15 +449,19 @@ export class AssessmentRegenerationService {
       }
 
       case 'SCORING_GUIDE': {
+        if (locator && locator.kind !== 'SCORING_GUIDE' && locator.kind !== 'INSTRUMENT_ITEM') {
+          return { found: false, error: 'INVALID_LOCATOR_KIND' };
+        }
         let candidates: any[] = [];
         if (locator?.kind === 'SCORING_GUIDE') {
           candidates = (pkg.scoringGuides || []).filter((s) => s.id === locator.id);
         } else if (locator?.kind === 'INSTRUMENT_ITEM') {
           candidates = (pkg.scoringGuides || []).filter((s) => s.instrumentItemId === locator.id);
         } else {
-          candidates = (pkg.scoringGuides || []).filter(
-            (s) => s.id === targetId || s.instrumentItemId === targetId
-          );
+          // Legacy request without locator
+          const byEntityId = (pkg.scoringGuides || []).filter((s) => s.id === targetId);
+          const byItemId = (pkg.scoringGuides || []).filter((s) => s.instrumentItemId === targetId);
+          candidates = Array.from(new Set([...byEntityId, ...byItemId]));
         }
         if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
         if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
@@ -442,15 +484,19 @@ export class AssessmentRegenerationService {
       }
 
       case 'RUBRIC': {
+        if (locator && locator.kind !== 'RUBRIC' && locator.kind !== 'INSTRUMENT_ITEM') {
+          return { found: false, error: 'INVALID_LOCATOR_KIND' };
+        }
         let candidates: any[] = [];
         if (locator?.kind === 'RUBRIC') {
           candidates = (pkg.rubrics || []).filter((r) => r.id === locator.id);
         } else if (locator?.kind === 'INSTRUMENT_ITEM') {
           candidates = (pkg.rubrics || []).filter((r) => r.instrumentItemId === locator.id);
         } else {
-          candidates = (pkg.rubrics || []).filter(
-            (r) => r.id === targetId || r.instrumentItemId === targetId
-          );
+          // Legacy request without locator
+          const byEntityId = (pkg.rubrics || []).filter((r) => r.id === targetId);
+          const byItemId = (pkg.rubrics || []).filter((r) => r.instrumentItemId === targetId);
+          candidates = Array.from(new Set([...byEntityId, ...byItemId]));
         }
         if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
         if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
@@ -592,6 +638,18 @@ export class AssessmentRegenerationService {
         valid: false,
         reason: `AI returned targetId '${output.targetId}' instead of requested targetId '${targetId}'`,
       };
+    }
+
+    if (contract.locator && output.locator) {
+      if (
+        output.locator.kind !== contract.locator.kind ||
+        output.locator.id !== contract.locator.id
+      ) {
+        return {
+          valid: false,
+          reason: `AI output changed locator identity from ${contract.locator.kind}:${contract.locator.id} to ${output.locator.kind}:${output.locator.id}`,
+        };
+      }
     }
 
     const proposed = output.proposedChanges;
@@ -1033,15 +1091,18 @@ export class AssessmentRegenerationService {
       }
 
       case 'PROPOSED_ANSWER': {
+        if (locator && locator.kind !== 'ANSWER_KEY' && locator.kind !== 'INSTRUMENT_ITEM') {
+          return { success: false, reason: 'Invalid locator kind for PROPOSED_ANSWER' };
+        }
         let candidates: any[] = [];
         if (locator?.kind === 'ANSWER_KEY') {
           candidates = (pkg.answerKeys || []).filter((a) => a.id === locator.id);
         } else if (locator?.kind === 'INSTRUMENT_ITEM') {
           candidates = (pkg.answerKeys || []).filter((a) => a.instrumentItemId === locator.id);
         } else {
-          candidates = (pkg.answerKeys || []).filter(
-            (a) => a.id === targetId || a.instrumentItemId === targetId
-          );
+          const byEntityId = (pkg.answerKeys || []).filter((a) => a.id === targetId);
+          const byItemId = (pkg.answerKeys || []).filter((a) => a.instrumentItemId === targetId);
+          candidates = Array.from(new Set([...byEntityId, ...byItemId]));
         }
         if (candidates.length !== 1) {
           return {
@@ -1059,15 +1120,18 @@ export class AssessmentRegenerationService {
       }
 
       case 'SCORING_GUIDE': {
+        if (locator && locator.kind !== 'SCORING_GUIDE' && locator.kind !== 'INSTRUMENT_ITEM') {
+          return { success: false, reason: 'Invalid locator kind for SCORING_GUIDE' };
+        }
         let candidates: any[] = [];
         if (locator?.kind === 'SCORING_GUIDE') {
           candidates = (pkg.scoringGuides || []).filter((s) => s.id === locator.id);
         } else if (locator?.kind === 'INSTRUMENT_ITEM') {
           candidates = (pkg.scoringGuides || []).filter((s) => s.instrumentItemId === locator.id);
         } else {
-          candidates = (pkg.scoringGuides || []).filter(
-            (s) => s.id === targetId || s.instrumentItemId === targetId
-          );
+          const byEntityId = (pkg.scoringGuides || []).filter((s) => s.id === targetId);
+          const byItemId = (pkg.scoringGuides || []).filter((s) => s.instrumentItemId === targetId);
+          candidates = Array.from(new Set([...byEntityId, ...byItemId]));
         }
         if (candidates.length !== 1) {
           return {
@@ -1096,15 +1160,18 @@ export class AssessmentRegenerationService {
       }
 
       case 'RUBRIC': {
+        if (locator && locator.kind !== 'RUBRIC' && locator.kind !== 'INSTRUMENT_ITEM') {
+          return { success: false, reason: 'Invalid locator kind for RUBRIC' };
+        }
         let candidates: any[] = [];
         if (locator?.kind === 'RUBRIC') {
           candidates = (pkg.rubrics || []).filter((r) => r.id === locator.id);
         } else if (locator?.kind === 'INSTRUMENT_ITEM') {
           candidates = (pkg.rubrics || []).filter((r) => r.instrumentItemId === locator.id);
         } else {
-          candidates = (pkg.rubrics || []).filter(
-            (r) => r.id === targetId || r.instrumentItemId === targetId
-          );
+          const byEntityId = (pkg.rubrics || []).filter((r) => r.id === targetId);
+          const byItemId = (pkg.rubrics || []).filter((r) => r.instrumentItemId === targetId);
+          candidates = Array.from(new Set([...byEntityId, ...byItemId]));
         }
         if (candidates.length !== 1) {
           return {

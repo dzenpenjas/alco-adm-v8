@@ -29,7 +29,6 @@ export interface ResolveUIStateInput {
   isGenerating?: boolean;
   isRegenerating?: boolean;
   isValidating?: boolean;
-  hasValidated?: boolean;
   academicSetting?: any;
   tp?: any;
   k13Analysis?: any;

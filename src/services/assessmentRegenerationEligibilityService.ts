@@ -61,8 +61,20 @@ export const ACTIONABLE_FINDING_CODE_MAP: Record<string, AssessmentRegenerationT
   RUBRIC_CRITERIA_UNCLEAR: 'RUBRIC',
   RUBRIC_SCALE_INCONSISTENT: 'RUBRIC',
 
+  // Scoring Guide
+  SCORING_GUIDE_QUALITY: 'SCORING_GUIDE',
+  SCORING_GUIDE_INCOMPLETE: 'SCORING_GUIDE',
+  QUALITY_SCORING_GUIDE_FAIL: 'SCORING_GUIDE',
+  QUALITY_SCORING_GUIDE_REVIEW: 'SCORING_GUIDE',
+
+  // Answer Key / Proposed Answer
+  ANSWER_KEY_UNCLEAR: 'PROPOSED_ANSWER',
+  ANSWER_KEY_MISMATCH: 'PROPOSED_ANSWER',
+  PROPOSED_ANSWER_QUALITY: 'PROPOSED_ANSWER',
+
   // Task
   TASK_QUALITY: 'TASK',
+  TASK_INSTRUCTIONS_AMBIGUOUS: 'TASK',
   EMPTY_TASK_PROMPT: 'TASK',
   TASK_INSTRUCTIONS_UNCLEAR: 'TASK',
   QUALITY_TASK_FAIL: 'TASK',
@@ -82,6 +94,8 @@ export const ACTIONABLE_FINDING_CODE_MAP: Record<string, AssessmentRegenerationT
 
   // Indicator / Material Context
   INDICATOR_QUALITY: 'INDICATOR',
+  INDICATOR_CLARITY: 'INDICATOR',
+  INDICATOR_UNCLEAR: 'INDICATOR',
   MATERIAL_CONTEXT_QUALITY: 'MATERIAL_CONTEXT',
 
   // Coverage Unit
@@ -109,9 +123,15 @@ export class AssessmentRegenerationEligibilityService {
       return ACTIONABLE_FINDING_CODE_MAP[code];
     }
 
-    // 3. Explicit rubric findings via rubricId
+    // 3. Explicit entity findings via typed finding IDs
     if (finding.rubricId) {
       return 'RUBRIC';
+    }
+    if (finding.scoringGuideId) {
+      return 'SCORING_GUIDE';
+    }
+    if (finding.answerKeyId) {
+      return 'PROPOSED_ANSWER';
     }
 
     // 4. Check dimension mappings with strict rules

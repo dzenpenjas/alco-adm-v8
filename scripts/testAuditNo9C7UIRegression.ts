@@ -101,6 +101,22 @@ const mockSiapPackage: AssessmentPackage = {
   needsReview: false,
 };
 
+const mockPassReport = {
+  id: 'report-1',
+  assessmentPackageId: 'pkg-1',
+  packageRevision: 1,
+  structural: { status: 'PASS' as const, findings: [] },
+  coverage: { status: 'PASS' as const, findings: [] },
+  answerVerification: { status: 'PASS' as const, findings: [] },
+  quality: { status: 'PASS' as const, findings: [] },
+  assembly: { status: 'PASS' as const, findings: [] },
+  overallStatus: 'PASS' as const,
+  reviewerStatus: 'COMPLETED' as const,
+  engineVersion: '1.0.0',
+  createdAt: '2026-09-18T00:00:00.000Z',
+  updatedAt: '2026-09-18T00:00:00.000Z',
+};
+
 async function runTests() {
   console.log('Running 9C.7 UI Auto Generate First - State Resolver Regression Suite...');
 
@@ -277,7 +293,7 @@ async function runTests() {
     assert(state === 'READY_TO_GENERATE', 'Should resolve to READY_TO_GENERATE');
   });
 
-  await test('READY_TO_GENERATE is preserved when hasValidated is true but package is null', () => {
+  await test('READY_TO_GENERATE is preserved when validationReport is present but package is null', () => {
     const state = resolveAssessmentGenerationUIState({
       selectedPlanId: 'plan-1',
       assessmentPlan: mockValidPlan,
@@ -285,7 +301,7 @@ async function runTests() {
       tp: mockTPData,
       assessmentCriteria: mockAssessmentCriteria,
       activePackage: null,
-      hasValidated: true,
+      validationReport: mockPassReport,
     });
     assert(state === 'READY_TO_GENERATE', 'Should be READY_TO_GENERATE when package is missing');
   });
@@ -440,7 +456,7 @@ async function runTests() {
     assert(state === 'DRAFT_REVIEW', 'Should resolve to DRAFT_REVIEW');
   });
 
-  await test('DRAFT_REVIEW is selected if hasValidated is false', () => {
+  await test('DRAFT_REVIEW is selected if validation report is not yet run', () => {
     const state = resolveAssessmentGenerationUIState({
       selectedPlanId: 'plan-1',
       assessmentPlan: mockValidPlan,
@@ -448,7 +464,7 @@ async function runTests() {
       tp: mockTPData,
       assessmentCriteria: mockAssessmentCriteria,
       activePackage: mockDraftPackage,
-      hasValidated: false,
+      validationReport: null,
     });
     assert(state === 'DRAFT_REVIEW', 'Should be DRAFT_REVIEW');
   });
@@ -505,7 +521,8 @@ async function runTests() {
       assessmentCriteria: mockAssessmentCriteria,
       activePackage: mockDraftPackage,
       isRegenerating: true,
-      hasValidated: true,
+      validationReport: mockPassReport,
+      confirmationEligible: true,
     });
     assert(state === 'REGENERATING_TARGET', 'Should resolve to REGENERATING_TARGET');
   });
@@ -561,7 +578,8 @@ async function runTests() {
       assessmentCriteria: mockAssessmentCriteria,
       activePackage: mockDraftPackage,
       isValidating: true,
-      hasValidated: true,
+      validationReport: mockPassReport,
+      confirmationEligible: true,
     });
     assert(state === 'FINAL_VALIDATION', 'Should resolve to FINAL_VALIDATION');
   });
@@ -596,22 +614,6 @@ async function runTests() {
   // ==========================================
   // SCENARIOS 41-45: READY_FOR_CONFIRMATION STATES & STALENESS / HARDENING (Blocker 2 & 3)
   // ==========================================
-  const mockPassReport = {
-    id: 'report-1',
-    assessmentPackageId: 'pkg-1',
-    packageRevision: 1,
-    structural: { status: 'PASS' as const, findings: [] },
-    coverage: { status: 'PASS' as const, findings: [] },
-    answerVerification: { status: 'PASS' as const, findings: [] },
-    quality: { status: 'PASS' as const, findings: [] },
-    assembly: { status: 'PASS' as const, findings: [] },
-    overallStatus: 'PASS' as const,
-    reviewerStatus: 'COMPLETED' as const,
-    engineVersion: '1.0.0',
-    createdAt: '2026-09-18T00:00:00.000Z',
-    updatedAt: '2026-09-18T00:00:00.000Z',
-  };
-
   await test('READY_FOR_CONFIRMATION when valid PASS report and confirmation eligible', () => {
     const state = resolveAssessmentGenerationUIState({
       selectedPlanId: 'plan-1',
@@ -758,20 +760,64 @@ async function runTests() {
     assert(mockDraftPackage.workflowStatus === 'DRAFT', 'Package workflow status must remain DRAFT prior to explicit confirmation');
   });
 
-  await test('Explicit teacher confirmation is the sole transition to SIAP', () => {
-    const context = {
-      workspaceId: 'w-1',
-      teacherProfileId: 't-1',
-      schoolId: 's-1',
-      academicYear: '2026/2027',
-      semester: 1 as const,
-      curriculumType: 'KURIKULUM_MERDEKA' as const,
-      subject: 'Biologi',
-      grade: '7',
+  await test('Explicit teacher confirmation via confirmAssessmentPackage is the sole transition to SIAP', () => {
+    const validPkgForPlan: any = {
+      id: 'pkg-plan-1',
+      assessmentPlanId: 'plan-1',
+      academicSettingId: 'setting-1',
+      title: 'Paket Asesmen Valid',
+      revision: 1,
+      blueprintItems: [
+        {
+          id: 'bp-1',
+          objectiveRefId: 'tp-item-1',
+          instrumentType: 'WRITTEN_TEST',
+          weight: 1,
+        },
+      ],
+      instruments: [
+        {
+          id: 'inst-1',
+          type: 'WRITTEN_TEST',
+          title: 'Tes Tertulis',
+          items: [
+            {
+              id: 'item-1',
+              prompt: 'Apa fungsi sel?',
+              itemType: 'MULTIPLE_CHOICE',
+              options: [
+                { id: 'opt-1', label: 'A', text: 'Opsi A', isCorrect: true },
+                { id: 'opt-2', label: 'B', text: 'Opsi B', isCorrect: false },
+              ],
+              correctAnswer: 'A',
+              explanation: 'Penjelasan',
+              cognitiveLevel: 'C3',
+              objectiveRefId: 'tp-item-1',
+            },
+          ],
+        },
+      ],
+      answerKeys: [],
+      scoringGuides: [],
+      rubrics: [],
+      workflowStatus: 'DRAFT',
+      needsReview: true,
+      createdAt: '2026-09-18T00:00:00.000Z',
+      updatedAt: '2026-09-18T00:00:00.000Z',
     };
-    // We can simulate confirmation via assessmentPackageService if imported, or test the resulting status
-    const confirmedPkg = { ...mockDraftPackage, workflowStatus: 'SIAP' as const };
-    assert(confirmedPkg.workflowStatus === 'SIAP', 'Confirmed package is SIAP');
+    const validationContext = {
+      academicSetting: mockAcademicSetting,
+      assessmentPlan: mockValidPlan,
+      tp: mockTPData,
+      k13Analysis: undefined,
+      assessmentCriteria: mockAssessmentCriteria,
+      validationReport: mockPassReport,
+      confirmationEligible: true,
+    };
+    const result = confirmAssessmentPackage(validPkgForPlan, validationContext as any);
+    assert(result.success === true, `confirmAssessmentPackage should succeed: ${result.errors.join(', ')}`);
+    assert(result.package.workflowStatus === 'SIAP', 'Confirmed package must have workflowStatus SIAP');
+    assert(result.package.needsReview === false, 'Confirmed package must have needsReview false');
   });
 
   await test('FAIL validation report results in DRAFT_REVIEW state', () => {
@@ -906,15 +952,55 @@ async function runTests() {
     assert(actionPrompt.target === 'ITEM_PROMPT', 'Target must be ITEM_PROMPT');
     assert(actionPrompt.targetId === 'item-456', 'TargetId must be item-456');
 
-    const taskFinding = { dimension: 'CONTENT_ALIGNMENT', code: 'TASK_ISSUE', instrumentId: 'inst-789' };
-    // Wait, content_alignment alone doesn't map to task unless code/dimension maps. Let's test RUBRIC or INDICATOR or TASK if applicable
-    const indicatorFinding = { dimension: 'TRACEABILITY', code: 'INDICATOR_ISSUE', blueprintItemId: 'bp-999' };
-    // Wait, what maps to INDICATOR? Let's check resolveTargetForFinding. Actually resolveTargetForFinding maps DISTRACTOR_QUALITY->OPTIONS, STIMULUS_QUALITY->STIMULUS, ITEM_CONSTRUCTION->ITEM_PROMPT, GRADE_LANGUAGE->ITEM_PROMPT/STIMULUS, code.includes('RUBRIC')->RUBRIC.
-    const rubricFinding = { dimension: 'ITEM_CONSTRUCTION', code: 'RUBRIC_QUALITY', instrumentItemId: 'rub-111' };
+    // Canonical RUBRIC finding with rubricId
+    const rubricFinding = { dimension: 'ITEM_CONSTRUCTION', code: 'RUBRIC_QUALITY', rubricId: 'rub-111' };
     const actionRubric = assessmentRegenerationEligibilityService.resolveActionForFinding(rubricFinding as any);
-    assert(actionRubric.eligible === true, 'RUBRIC finding must be eligible');
+    assert(actionRubric.eligible === true, 'RUBRIC finding with rubricId must be eligible');
     assert(actionRubric.target === 'RUBRIC', 'Target must be RUBRIC');
     assert(actionRubric.targetId === 'rub-111', 'TargetId must be rub-111');
+    assert(actionRubric.locator?.kind === 'RUBRIC', 'Locator kind must be RUBRIC');
+    assert(actionRubric.locator?.id === 'rub-111', 'Locator id must be rub-111');
+
+    // Item-linked RUBRIC finding with instrumentItemId
+    const itemRubricFinding = { dimension: 'ITEM_CONSTRUCTION', code: 'RUBRIC_QUALITY', instrumentItemId: 'item-222' };
+    const actionItemRubric = assessmentRegenerationEligibilityService.resolveActionForFinding(itemRubricFinding as any);
+    assert(actionItemRubric.eligible === true, 'RUBRIC finding with instrumentItemId must be eligible');
+    assert(actionItemRubric.target === 'RUBRIC', 'Target must be RUBRIC');
+    assert(actionItemRubric.targetId === 'item-222', 'TargetId must be item-222');
+    assert(actionItemRubric.locator?.kind === 'INSTRUMENT_ITEM', 'Locator kind must be INSTRUMENT_ITEM');
+    assert(actionItemRubric.locator?.id === 'item-222', 'Locator id must be item-222');
+
+    // Canonical SCORING_GUIDE finding with scoringGuideId
+    const scoringFinding = { dimension: 'ITEM_CONSTRUCTION', code: 'SCORING_GUIDE_INCOMPLETE', scoringGuideId: 'sg-111' };
+    const actionScoring = assessmentRegenerationEligibilityService.resolveActionForFinding(scoringFinding as any);
+    assert(actionScoring.eligible === true, 'SCORING_GUIDE finding with scoringGuideId must be eligible');
+    assert(actionScoring.target === 'SCORING_GUIDE', 'Target must be SCORING_GUIDE');
+    assert(actionScoring.targetId === 'sg-111', 'TargetId must be sg-111');
+    assert(actionScoring.locator?.kind === 'SCORING_GUIDE', 'Locator kind must be SCORING_GUIDE');
+
+    // Canonical PROPOSED_ANSWER finding with answerKeyId
+    const answerFinding = { dimension: 'ITEM_CONSTRUCTION', code: 'ANSWER_KEY_UNCLEAR', answerKeyId: 'ak-111' };
+    const actionAnswer = assessmentRegenerationEligibilityService.resolveActionForFinding(answerFinding as any);
+    assert(actionAnswer.eligible === true, 'PROPOSED_ANSWER finding with answerKeyId must be eligible');
+    assert(actionAnswer.target === 'PROPOSED_ANSWER', 'Target must be PROPOSED_ANSWER');
+    assert(actionAnswer.targetId === 'ak-111', 'TargetId must be ak-111');
+    assert(actionAnswer.locator?.kind === 'ANSWER_KEY', 'Locator kind must be ANSWER_KEY');
+
+    // Canonical TASK finding with instrumentId
+    const taskFinding = { dimension: 'ITEM_CONSTRUCTION', code: 'TASK_INSTRUCTIONS_AMBIGUOUS', instrumentId: 'inst-789' };
+    const actionTask = assessmentRegenerationEligibilityService.resolveActionForFinding(taskFinding as any);
+    assert(actionTask.eligible === true, 'TASK finding with instrumentId must be eligible');
+    assert(actionTask.target === 'TASK', 'Target must be TASK');
+    assert(actionTask.targetId === 'inst-789', 'TargetId must be inst-789');
+    assert(actionTask.locator?.kind === 'INSTRUMENT', 'Locator kind must be INSTRUMENT');
+
+    // Canonical INDICATOR finding with blueprintItemId
+    const indicatorFinding = { dimension: 'ITEM_CONSTRUCTION', code: 'INDICATOR_CLARITY', blueprintItemId: 'bp-999' };
+    const actionIndicator = assessmentRegenerationEligibilityService.resolveActionForFinding(indicatorFinding as any);
+    assert(actionIndicator.eligible === true, 'INDICATOR finding with blueprintItemId must be eligible');
+    assert(actionIndicator.target === 'INDICATOR', 'Target must be INDICATOR');
+    assert(actionIndicator.targetId === 'bp-999', 'TargetId must be bp-999');
+    assert(actionIndicator.locator?.kind === 'BLUEPRINT_ITEM', 'Locator kind must be BLUEPRINT_ITEM');
 
     // Fail closed: OPTIONS finding with instrumentId ONLY (missing instrumentItemId) must FAIL CLOSED (not use instrumentId)
     const wrongIdFinding = { dimension: 'DISTRACTOR_QUALITY', code: 'POOR_DISTRACTOR', instrumentId: 'inst-123' };
