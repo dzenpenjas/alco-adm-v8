@@ -20,6 +20,8 @@ import {
   renderAssessmentDocx,
   renderAssessmentPdf,
   formatDocumentDate,
+  isValidAssessmentPackageRevision,
+  generateAssessmentDocumentFileName,
 } from '../src/services/documentEngine/assessmentExportService';
 
 function assert(condition: boolean, message: string) {
@@ -962,43 +964,135 @@ async function runAudit9C8Regression() {
     assert(Boolean(canPdf), 'Canonical PDF Blob must be produced without errors');
   });
 
-  // Test 22: Canonical package revision is fail-closed (missing/invalid revision blocks export without defaulting to Rev 1)
-  await test('9C.8.22 — Canonical package revision is fail-closed (missing/invalid revision blocks export without defaulting to Rev 1)', async () => {
-    const invalidRevPkg: AssessmentPackage = {
-      ...mockValidSiapPackage,
-      id: 'pkg-invalid-rev',
-      revision: 0, // invalid revision < 1
-    };
-
-    const contextWithInvalidRev: DocumentGenerationContext = {
-      school: mockSchool,
-      profile: mockProfile,
-      academicSetting: mockAcademicSetting,
-      tp: mockTP,
-      assessmentPlans: [mockPlan],
-      assessmentPackages: [invalidRevPkg],
-      documentDate: '2026-09-20',
-    };
-
-    const eligibility = checkAssessmentExportEligibility(contextWithInvalidRev);
-    assert(eligibility.eligible === false, 'Invalid revision package must not be eligible for export');
-    assert(
-      eligibility.blockers.some((b) => b.includes('nomor revisi tidak valid')),
-      'Eligibility blockers must cite invalid revision'
-    );
-
-    let snapshotThrew = false;
-    try {
-      createAssessmentDocumentSnapshot(contextWithInvalidRev);
-    } catch (err: any) {
-      snapshotThrew = true;
+  // Test 22: Canonical package revision is fail-closed (integer >= 1 required; rejects undefined, null, 0, -1, 1.5, NaN; allows 1, 2)
+  await test('9C.8.22 — Canonical package revision is fail-closed (integer >= 1 required; rejects undefined, null, 0, -1, 1.5, NaN; allows 1, 2)', async () => {
+    // 1. Direct unit verification of isValidAssessmentPackageRevision helper
+    const invalidRevisions = [undefined, null, 0, -1, 1.5, NaN, '1', Infinity, -Infinity, {}];
+    for (const inv of invalidRevisions) {
       assert(
-        err.message.toLowerCase().includes('nomor revisi tidak valid') ||
-          err.message.toLowerCase().includes('revisi') && err.message.toLowerCase().includes('tidak valid'),
-        'Error message must cite invalid revision'
+        isValidAssessmentPackageRevision(inv) === false,
+        `isValidAssessmentPackageRevision must return false for ${inv}`
       );
     }
-    assert(snapshotThrew, 'createAssessmentDocumentSnapshot must throw on invalid package revision');
+    const validRevisions = [1, 2, 10, 100];
+    for (const val of validRevisions) {
+      assert(
+        isValidAssessmentPackageRevision(val) === true,
+        `isValidAssessmentPackageRevision must return true for ${val}`
+      );
+    }
+
+    // 2. Test each invalid revision through checkAssessmentExportEligibility & createAssessmentDocumentSnapshot
+    const explicitInvalidCases: { label: string; value: any }[] = [
+      { label: 'undefined', value: undefined },
+      { label: 'null', value: null },
+      { label: '0', value: 0 },
+      { label: '-1', value: -1 },
+      { label: '1.5', value: 1.5 },
+      { label: 'NaN', value: NaN },
+    ];
+
+    for (const { label, value } of explicitInvalidCases) {
+      const invalidPkg: AssessmentPackage = {
+        ...mockValidSiapPackage,
+        id: `pkg-invalid-rev-${label}`,
+        revision: value,
+      };
+
+      const ctx: DocumentGenerationContext = {
+        school: mockSchool,
+        profile: mockProfile,
+        academicSetting: mockAcademicSetting,
+        tp: mockTP,
+        assessmentPlans: [mockPlan],
+        assessmentPackages: [invalidPkg],
+        documentDate: '2026-09-20',
+      };
+
+      const eligibility = checkAssessmentExportEligibility(ctx);
+      assert(
+        eligibility.eligible === false,
+        `Revision ${label} must be BLOCKED by checkAssessmentExportEligibility`
+      );
+      assert(
+        eligibility.blockers.some((b) => b.includes('nomor revisi tidak valid')),
+        `Eligibility blockers for ${label} must cite invalid revision`
+      );
+
+      let snapshotThrew = false;
+      try {
+        createAssessmentDocumentSnapshot(ctx);
+      } catch (err: any) {
+        snapshotThrew = true;
+        assert(
+          err.message.toLowerCase().includes('nomor revisi tidak valid') ||
+            (err.message.toLowerCase().includes('revisi') && err.message.toLowerCase().includes('tidak valid')),
+          `createAssessmentDocumentSnapshot error for ${label} must cite invalid revision`
+        );
+      }
+      assert(
+        snapshotThrew,
+        `createAssessmentDocumentSnapshot must throw on invalid package revision (${label})`
+      );
+    }
+
+    // 3. Test that fractional revision 1.5 NEVER becomes "Rev1" or "Rev1.5" in canonical export filename
+    let filenameThrewForFloat = false;
+    try {
+      const fabricatedFloatSnapshot: any = {
+        mode: 'CANONICAL_PACKAGE',
+        subject: 'Matematika',
+        grade: '7',
+        assessmentPackageRevision: 1.5,
+      };
+      const fileName = generateAssessmentDocumentFileName(fabricatedFloatSnapshot, 'docx');
+      // If it somehow didn't throw, assert it didn't generate Rev1 or Rev1.5
+      assert(!fileName.includes('Rev1.') && !fileName.includes('Rev1_'), `Filename must not be generated for float 1.5: ${fileName}`);
+    } catch (err: any) {
+      filenameThrewForFloat = true;
+      assert(
+        err.message.toLowerCase().includes('nomor revisi') || err.message.toLowerCase().includes('tidak valid'),
+        'generateAssessmentDocumentFileName must fail-closed on float revision 1.5'
+      );
+    }
+    assert(filenameThrewForFloat, 'generateAssessmentDocumentFileName must throw on float revision 1.5');
+
+    // 4. Test that valid revisions (1, 2) succeed cleanly
+    for (const validRev of [1, 2]) {
+      const validPkg: AssessmentPackage = {
+        ...mockValidSiapPackage,
+        id: `pkg-valid-rev-${validRev}`,
+        revision: validRev,
+      };
+
+      const validCtx: DocumentGenerationContext = {
+        school: mockSchool,
+        profile: mockProfile,
+        academicSetting: mockAcademicSetting,
+        tp: mockTP,
+        assessmentPlans: [mockPlan],
+        assessmentPackages: [validPkg],
+        documentDate: '2026-09-20',
+      };
+
+      const eligibility = checkAssessmentExportEligibility(validCtx);
+      assert(
+        eligibility.eligible === true,
+        `Valid revision ${validRev} must be eligible for export (blockers: ${eligibility.blockers.join(', ')})`
+      );
+
+      const snapshot = createAssessmentDocumentSnapshot(validCtx);
+      assert(
+        snapshot.assessmentPackageRevision === validRev,
+        `Snapshot revision must strictly match ${validRev}`
+      );
+
+      const fileName = generateAssessmentDocumentFileName(snapshot, 'docx');
+      assert(
+        fileName.includes(`Rev${validRev}.docx`),
+        `Filename must contain Rev${validRev}.docx (got: ${fileName})`
+      );
+    }
   });
 
   // Test 23: Missing TP/KD code resolution does not fabricate fake fallback 'TP' / 'KD' prefixes

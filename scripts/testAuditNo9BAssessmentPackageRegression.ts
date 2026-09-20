@@ -758,6 +758,7 @@ async function runRegressionTests() {
     }],
     assessmentPackages: [siapPkg1, siapPkg2],
     activeAssessmentPackageId: 'pkg-siap-2',
+    documentDate: '2026-09-20',
     skipDownload: true,
   });
   if (!exportResult || !exportResult.blob) {

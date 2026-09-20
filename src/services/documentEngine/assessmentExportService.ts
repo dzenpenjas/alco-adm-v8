@@ -105,6 +105,16 @@ export function formatDocumentDate(
 }
 
 /**
+ * Strict validator for canonical assessment package revision.
+ * Must be an integer >= 1 (e.g. 1, 2, 10). Rejects undefined, null, 0, negative, fractional (1.5), and NaN.
+ */
+export function isValidAssessmentPackageRevision(
+  revision: unknown
+): revision is number {
+  return typeof revision === 'number' && Number.isInteger(revision) && revision >= 1;
+}
+
+/**
  * Check eligibility of assessment package for final document export.
  * Invariants:
  * - Only SIAP packages are eligible
@@ -181,11 +191,7 @@ export function checkAssessmentExportEligibility(
   }
 
   // Verify revision number is valid integer >= 1
-  if (
-    typeof resolvedPkg.revision !== 'number' ||
-    isNaN(resolvedPkg.revision) ||
-    resolvedPkg.revision < 1
-  ) {
+  if (!isValidAssessmentPackageRevision(resolvedPkg.revision)) {
     blockers.push(
       `Perangkat Asesmen "${resolvedPkg.title}" memiliki nomor revisi tidak valid (${resolvedPkg.revision}). Revisi paket wajib berupa bilangan bulat >= 1.`
     );
@@ -333,11 +339,7 @@ export function createAssessmentDocumentSnapshot(
   // Freeze associated plan
   const plan = (context.assessmentPlans || []).find((p) => p.id === pkg.assessmentPlanId);
 
-  if (
-    typeof pkg.revision !== 'number' ||
-    isNaN(pkg.revision) ||
-    pkg.revision < 1
-  ) {
+  if (!isValidAssessmentPackageRevision(pkg.revision)) {
     throw new Error(
       `Gagal membuat snapshot asesmen: Revisi Perangkat Asesmen tidak valid (${pkg.revision}). Revisi paket wajib berupa bilangan bulat >= 1.`
     );
@@ -1733,11 +1735,7 @@ export function generateAssessmentDocumentFileName(
     return `Format_Asesmen_${cleanSubject}${gradeSuffix}_Template.${extension}`;
   }
 
-  if (
-    typeof snapshot.assessmentPackageRevision !== 'number' ||
-    isNaN(snapshot.assessmentPackageRevision) ||
-    snapshot.assessmentPackageRevision < 1
-  ) {
+  if (!isValidAssessmentPackageRevision(snapshot.assessmentPackageRevision)) {
     throw new Error(
       `Gagal membuat nama file: Nomor revisi paket asesmen tidak valid (${snapshot.assessmentPackageRevision}).`
     );
