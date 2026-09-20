@@ -9,6 +9,7 @@ import {
   fallbackGenerateTP,
   fallbackGenerateATP,
   fallbackRefineText,
+  fallbackGenerateLearningPlan,
 } from './server/curriculumFallback';
 
 dotenv.config();
@@ -437,6 +438,195 @@ Berikan versi teks hasil penyempurnaan dalam bahasa Indonesia yang baku dan eleg
 
   const refined = fallbackRefineText(text, instruction, context);
   res.json({ success: true, refinedText: refined, engine: 'pedagogical_engine' });
+});
+
+// Endpoint: AI Generate Learning Plan (Modul Ajar DRAFT)
+app.post('/api/ai/generate-learning-plan', async (req, res) => {
+  const { academicSetting, tps, atpItems, topic } = req.body || {};
+
+  if (!tps || !Array.isArray(tps) || tps.length === 0) {
+    return res.status(400).json({ error: 'At least one Purpose of Learning (TP) is required to generate a Learning Plan' });
+  }
+
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const subject = academicSetting?.subject || 'Mata Pelajaran';
+      const grade = academicSetting?.grade || 'Kelas';
+      const phase = academicSetting?.phase || 'Fase';
+
+      const prompt = `Anda adalah spesialis penyusun Modul Ajar / RPP Berdiferensiasi Kurikulum Merdeka 2026 (Deep Learning & Kemendikdasmen).
+Susun draf Modul Ajar pedagogis yang komprehensif berdasarkan data rujukan berikut:
+
+MATA PELAJARAN: ${subject}
+KELAS / FASE: ${grade} / ${phase}
+TOPIK: ${topic || tps[0]?.contentScope || tps[0]?.statement || 'Topik Pembelajaran'}
+
+TUJUAN PEMBELAJARAN (TP) RUJUKAN:
+${tps.map((t: any, i: number) => `${i + 1}. [Kode: ${t.code || '-'}] ${t.statement} (Materi: ${t.contentScope || '-'}, Kompetensi: ${t.competence || '-'})`).join('\n')}
+
+ATP / ALOKASI JP RUJUKAN:
+${atpItems && atpItems.length > 0 ? atpItems.map((a: any, i: number) => `${i + 1}. Langkah ${a.stepNumber || i + 1}: Lingkup ${a.materialScope || '-'} (${a.jp || 2} JP)`).join('\n') : 'Sesuai standar'}
+
+INSTRUKSI:
+1. Susun Pengalaman Belajar (learningExperiences) dengan struktur 3 fase utama (UNDERSTAND, APPLY, REFLECT) sesuai panduan 2026.
+2. Sediakan Rencana Asesmen (Asesmen Diagnostik Awal, Formatif, dan Sumatif).
+3. Sediakan Rencana Diferensiasi (Konten, Proses, Produk).
+4. Buat kalimat pemahaman bermakna dan pertanyaan pemantik yang relevan.
+
+Kembalikan output JSON sesuai schema.`;
+
+      const response = await generateContentWithRetry({
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              topic: { type: Type.STRING },
+              meaningfulUnderstanding: { type: Type.STRING },
+              triggerQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+              learningExperiences: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    phase: { type: Type.STRING, description: 'MUST be UNDERSTAND, APPLY, or REFLECT' },
+                    description: { type: Type.STRING },
+                    durationMinutes: { type: Type.NUMBER },
+                  },
+                  required: ['phase', 'description'],
+                },
+              },
+              deepLearningContext: {
+                type: Type.OBJECT,
+                properties: {
+                  principles: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+              },
+              graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
+              learningSteps: {
+                type: Type.OBJECT,
+                properties: {
+                  opening: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        stepName: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        durationMinutes: { type: Type.NUMBER },
+                      },
+                    },
+                  },
+                  core: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        stepName: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        durationMinutes: { type: Type.NUMBER },
+                      },
+                    },
+                  },
+                  closing: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        stepName: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        durationMinutes: { type: Type.NUMBER },
+                      },
+                    },
+                  },
+                },
+              },
+              assessmentPlan: {
+                type: Type.OBJECT,
+                properties: {
+                  initial: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        type: { type: Type.STRING },
+                        technique: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                      },
+                    },
+                  },
+                  formative: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        type: { type: Type.STRING },
+                        technique: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                      },
+                    },
+                  },
+                  summative: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        type: { type: Type.STRING },
+                        technique: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                      },
+                    },
+                  },
+                },
+              },
+              differentiation: {
+                type: Type.OBJECT,
+                properties: {
+                  content: { type: Type.STRING },
+                  process: { type: Type.STRING },
+                  product: { type: Type.STRING },
+                },
+              },
+              reflection: {
+                type: Type.OBJECT,
+                properties: {
+                  teacher: { type: Type.STRING },
+                  student: { type: Type.STRING },
+                },
+              },
+              enrichmentPlan: { type: Type.STRING },
+              remedialPlan: { type: Type.STRING },
+              resources: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    title: { type: Type.STRING },
+                  },
+                },
+              },
+              allocatedJP: { type: Type.NUMBER },
+            },
+          },
+        },
+      });
+
+      const parsed = cleanAndParseJSON(response.text, null);
+      if (parsed && typeof parsed === 'object') {
+        return res.json({ success: true, data: parsed, engine: 'gemini' });
+      }
+    } catch (error: unknown) {
+      console.warn('Gemini generate learning plan failed or unconfigured, using fallback:', error);
+    }
+  }
+
+  const fallbackData = fallbackGenerateLearningPlan({ academicSetting, tps, atpItems, topic });
+  res.json({ success: true, data: fallbackData, engine: 'pedagogical_engine' });
 });
 
 // 2. Endpoint: AI Assessment Package Generation (9C.4 / 9C.7)

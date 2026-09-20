@@ -179,6 +179,42 @@ export const DOCUMENT_CATALOG: DocumentCatalogItem[] = [
 ];
 
 /**
+ * Resolves the canonical LearningPlan according to strict exactness rules:
+ * - If activeLearningPlanId is provided: exact ID must exist and be SIAP.
+ * - If activeLearningPlanId is NOT provided: exactly 1 SIAP plan must exist.
+ * - 0 SIAP or >1 SIAP without activeLearningPlanId will block export.
+ */
+export function resolveCanonicalLearningPlan(context: DocumentGenerationContext): {
+  plan?: LearningPlan;
+  error?: string;
+} {
+  const plans = (context.learningPlans || []).filter(
+    (p) => !context.academicSetting?.id || p.academicSettingId === context.academicSetting.id
+  );
+
+  if (context.activeLearningPlanId) {
+    const exactPlan = (context.learningPlans || []).find((p) => p.id === context.activeLearningPlanId);
+    if (!exactPlan) {
+      return { error: `Rancangan Pembelajaran dengan ID '${context.activeLearningPlanId}' tidak ditemukan.` };
+    }
+    if (exactPlan.status !== 'SIAP') {
+      return { error: `Rancangan Pembelajaran '${exactPlan.title || exactPlan.topic || exactPlan.id}' berstatus '${exactPlan.status}'. Harus diverifikasi dan dikonfirmasi SIAP terlebih dahulu.` };
+    }
+    return { plan: exactPlan };
+  }
+
+  const siapPlans = plans.filter((p) => p.status === 'SIAP');
+  if (siapPlans.length === 0) {
+    return { error: 'Tidak ada Rancangan Pembelajaran (Modul Ajar) yang berstatus SIAP untuk kelas/mapel ini.' };
+  }
+  if (siapPlans.length > 1) {
+    return { error: `Terdapat ${siapPlans.length} Rancangan Pembelajaran berstatus SIAP. Silakan pilih satu Modul Ajar secara spesifik (activeLearningPlanId) untuk diekspor.` };
+  }
+
+  return { plan: siapPlans[0] };
+}
+
+/**
  * Validates whether all prerequisites for generating the document are met.
  * Per-document validation logic so each document only requires its true prerequisites.
  */
@@ -194,6 +230,18 @@ export function validateDocumentRequirements(
   }
   if (!context.profile?.name?.trim()) {
     missingFields.push('Nama Guru Penyusun belum diisi');
+  }
+  if (!context.academicSetting?.subject?.trim()) {
+    missingFields.push('Mata Pelajaran belum dipilih');
+  }
+  if (!context.academicSetting?.grade?.trim()) {
+    missingFields.push('Kelas/Tingkat belum dipilih');
+  }
+  if (!context.academicSetting?.semester?.trim()) {
+    missingFields.push('Semester belum dipilih');
+  }
+  if (!context.academicSetting?.academicYear?.trim()) {
+    missingFields.push('Tahun Pelajaran belum diisi');
   }
 
   const curType = getCurriculumType(
@@ -312,19 +360,11 @@ export function validateDocumentRequirements(
         break;
 
       case 'MODUL_AJAR': {
-        const plans = context.learningPlans || [];
-        const matchedPlan =
-          plans.find((p) => p.id === context.activeLearningPlanId) ||
-          plans.find((p) => p.academicSettingId === context.academicSetting?.id && p.status === 'SIAP') ||
-          plans.find((p) => p.academicSettingId === context.academicSetting?.id);
-
-        if (!matchedPlan) {
-          missingFields.push('Rancangan Perencanaan Pembelajaran (LearningPlan) belum dibuat. Silakan susun Modul Ajar terlebih dahulu di menu Perencanaan Pembelajaran.');
-        } else {
-          if (matchedPlan.status !== 'SIAP') {
-            missingFields.push(`Rancangan Pembelajaran '${matchedPlan.title || matchedPlan.topic || matchedPlan.id}' masih berstatus '${matchedPlan.status}' (Harus dikonfirmasi SIAP oleh guru).`);
-          }
-          const planVal = validateLearningPlan(matchedPlan, {
+        const resolved = resolveCanonicalLearningPlan(context as DocumentGenerationContext);
+        if (resolved.error) {
+          missingFields.push(resolved.error);
+        } else if (resolved.plan) {
+          const planVal = validateLearningPlan(resolved.plan, {
             academicSetting: context.academicSetting,
             tp: context.tp,
             atp: context.atp,

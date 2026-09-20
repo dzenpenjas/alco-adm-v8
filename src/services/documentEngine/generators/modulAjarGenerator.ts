@@ -20,6 +20,7 @@ import {
 } from '../docxStyles';
 import { LearningPlan } from '../../../types';
 import { validateLearningPlan, createEmptyLearningPlan } from '../../learningPlanService';
+import { resolveCanonicalLearningPlan } from '../index';
 
 /**
  * Pure Canonical Document Renderer for Modul Ajar / RPP.
@@ -35,30 +36,20 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
 
   // 1. Resolve canonical LearningPlan
   let plan: LearningPlan | undefined = undefined;
-  if (context.activeLearningPlanId && context.learningPlans) {
-    plan = context.learningPlans.find((lp) => lp.id === context.activeLearningPlanId);
-  }
-  if (!plan && context.learningPlans && context.learningPlans.length > 0) {
-    // Prefer SIAP plan, otherwise latest plan for this setting
-    plan =
-      context.learningPlans.find((lp) => lp.academicSettingId === academicSetting.id && lp.status === 'SIAP') ||
-      context.learningPlans.find((lp) => lp.academicSettingId === academicSetting.id) ||
-      context.learningPlans[0];
-  }
-
-  // If no plan exists in context, in blank mode create empty shell for layout, otherwise block export
-  if (!plan) {
-    if (context.documentMode === 'blank') {
-      plan = createEmptyLearningPlan({
-        academicSetting,
-        curriculumType: academicSetting.curriculum?.includes('2013') || academicSetting.curriculum?.includes('K13') ? 'K13' : 'KURIKULUM_MERDEKA',
-        tpIds: [],
-        atpItemIds: [],
-        context: { tp, atp },
-      });
-    } else {
-      throw new Error('Rancangan Pembelajaran (LearningPlan) tidak ditemukan. Silakan buat Modul Ajar terlebih dahulu di menu Perencanaan Pembelajaran.');
+  if (context.documentMode === 'blank') {
+    plan = createEmptyLearningPlan({
+      academicSetting,
+      curriculumType: academicSetting.curriculum?.includes('2013') || academicSetting.curriculum?.includes('K13') ? 'K13' : 'KURIKULUM_MERDEKA',
+      tpIds: [],
+      atpItemIds: [],
+      context: { tp, atp },
+    });
+  } else {
+    const resolved = resolveCanonicalLearningPlan(context);
+    if (resolved.error || !resolved.plan) {
+      throw new Error(resolved.error || 'Rancangan Pembelajaran (LearningPlan) berstatus SIAP tidak ditemukan.');
     }
+    plan = resolved.plan;
   }
 
   // 2. Validate Plan against active context

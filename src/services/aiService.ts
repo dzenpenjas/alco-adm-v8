@@ -108,12 +108,12 @@ export async function generateTPWithAI(params: GenerateTPParams): Promise<TPItem
       const stmt = item.statement || item.description || '';
       return {
         id: `tp-item-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-        code: item.code || `TP ${idx + 1}`,
-        elementName: item.elementName || 'Umum',
+        code: item.code || '',
+        elementName: item.elementName || '',
         statement: stmt,
         description: stmt,
-        competence: item.competence || 'Memahami',
-        contentScope: item.contentScope || 'Materi Pokok',
+        competence: item.competence || '',
+        contentScope: item.contentScope || '',
         p3Dimensions: Array.isArray(item.p3Dimensions) ? item.p3Dimensions : [],
         order: idx + 1,
         cpAnalysisItemIds: Array.isArray(item.cpAnalysisItemIds) ? item.cpAnalysisItemIds : [],
@@ -121,6 +121,36 @@ export async function generateTPWithAI(params: GenerateTPParams): Promise<TPItem
     });
   } catch (err) {
     throw new Error(formatAIErrorMessage(err, 'merumuskan Tujuan Pembelajaran'));
+  }
+}
+
+export interface GenerateLearningPlanParams {
+  academicSetting: AcademicSetting;
+  tps: TPItem[];
+  atpItems?: ATPItem[];
+  topic?: string;
+}
+
+export async function generateLearningPlanWithAI(params: GenerateLearningPlanParams): Promise<Partial<LearningPlan>> {
+  try {
+    const res = await fetch('/api/ai/generate-learning-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Gagal menyusun draf Modul Ajar AI (Status ${res.status})`);
+    }
+
+    const data = await res.json();
+    if (!data.data || typeof data.data !== 'object') {
+      throw new Error('Hasil respon AI Modul Ajar tidak valid.');
+    }
+    return data.data;
+  } catch (err) {
+    throw new Error(formatAIErrorMessage(err, 'menyusun Modul Ajar / RPP'));
   }
 }
 

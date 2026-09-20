@@ -532,6 +532,33 @@ export function confirmLearningPlan(
 }
 
 /**
+ * Determines whether a change to a LearningPlan is pedagogically substantive.
+ * Substantive edits invalidate SIAP status and revert the plan to DRAFT.
+ */
+export function isSubstantiveLearningPlanChange(oldPlan: LearningPlan, newPlan: LearningPlan): boolean {
+  if (JSON.stringify(oldPlan.tpIds || []) !== JSON.stringify(newPlan.tpIds || [])) return true;
+  if (JSON.stringify(oldPlan.atpItemIds || []) !== JSON.stringify(newPlan.atpItemIds || [])) return true;
+  if (JSON.stringify(oldPlan.kktpCriterionIds || []) !== JSON.stringify(newPlan.kktpCriterionIds || [])) return true;
+  if ((oldPlan.title || '') !== (newPlan.title || '')) return true;
+  if ((oldPlan.topic || '') !== (newPlan.topic || '')) return true;
+  if (JSON.stringify(oldPlan.objectives || []) !== JSON.stringify(newPlan.objectives || [])) return true;
+  if (JSON.stringify(oldPlan.learningExperiences || []) !== JSON.stringify(newPlan.learningExperiences || [])) return true;
+  if (JSON.stringify(oldPlan.learningSteps || {}) !== JSON.stringify(newPlan.learningSteps || {})) return true;
+  if (JSON.stringify(oldPlan.deepLearningContext || {}) !== JSON.stringify(newPlan.deepLearningContext || {})) return true;
+  if (JSON.stringify(oldPlan.graduateProfileDimensions || []) !== JSON.stringify(newPlan.graduateProfileDimensions || [])) return true;
+  if (JSON.stringify(oldPlan.assessmentPlan || {}) !== JSON.stringify(newPlan.assessmentPlan || {})) return true;
+  if (JSON.stringify(oldPlan.resources || []) !== JSON.stringify(newPlan.resources || [])) return true;
+  if (JSON.stringify(oldPlan.differentiation || {}) !== JSON.stringify(newPlan.differentiation || {})) return true;
+  if ((oldPlan.meaningfulUnderstanding || '') !== (newPlan.meaningfulUnderstanding || '')) return true;
+  if (JSON.stringify(oldPlan.triggerQuestions || []) !== JSON.stringify(newPlan.triggerQuestions || [])) return true;
+  if (JSON.stringify(oldPlan.reflection || {}) !== JSON.stringify(newPlan.reflection || {})) return true;
+  if ((oldPlan.enrichmentPlan || '') !== (newPlan.enrichmentPlan || '')) return true;
+  if ((oldPlan.remedialPlan || '') !== (newPlan.remedialPlan || '')) return true;
+  if (oldPlan.allocatedJP !== newPlan.allocatedJP) return true;
+  return false;
+}
+
+/**
  * Automatically invalidates SIAP status if underlying dependencies (TP/ATP) were deleted or changed.
  */
 export function invalidatePlanIfDependenciesChanged(

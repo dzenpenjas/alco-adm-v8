@@ -215,3 +215,149 @@ export function fallbackRefineText(text: string, instruction?: string, context?:
     .replace(/(^\w|\.\s+\w)/gm, (match) => match.toUpperCase());
   return clean;
 }
+
+export interface FallbackGenerateLearningPlanParams {
+  academicSetting?: {
+    subject?: string;
+    grade?: string;
+    phase?: string;
+    curriculum?: string;
+    academicYear?: string;
+    semester?: string;
+  };
+  tps?: Array<{
+    id?: string;
+    code?: string;
+    statement?: string;
+    contentScope?: string;
+    competence?: string;
+  }>;
+  atpItems?: Array<{
+    id?: string;
+    stepNumber?: number;
+    materialScope?: string;
+    jp?: number;
+  }>;
+  topic?: string;
+}
+
+export function fallbackGenerateLearningPlan(params: FallbackGenerateLearningPlanParams) {
+  const subject = params.academicSetting?.subject || 'Mata Pelajaran';
+  const grade = params.academicSetting?.grade || 'Kelas';
+  const phase = params.academicSetting?.phase || 'Fase';
+  const tps = params.tps || [];
+  const primaryTp = tps[0];
+  const topicName = params.topic || primaryTp?.contentScope || primaryTp?.statement || `Topik Pembelajaran ${subject}`;
+  const tpCodeStr = primaryTp?.code ? `[${primaryTp.code}] ` : '';
+  const linkedTpIds = tps.map((t) => t.id).filter(Boolean) as string[];
+
+  return {
+    title: `Draf Modul Ajar: ${topicName}`,
+    topic: topicName,
+    meaningfulUnderstanding: `Peserta didik memahami konsep esensial ${topicName} dan mampu menerapkannya secara mandiri serta kritis dalam konteks kehidupan sehari-hari.`,
+    triggerQuestions: [
+      `Mengapa pemahaman tentang ${topicName} penting dalam kehidupan kita sehari-hari?`,
+      `Bagaimana kita dapat menerapkan konsep ini untuk menyelesaikan permasalahan di lingkungan sekitar?`
+    ],
+    learningExperiences: [
+      {
+        id: `exp-1-${Date.now()}`,
+        phase: 'UNDERSTAND',
+        description: `Peserta didik mengamati contoh kontekstual, mendiskusikan konsep dasar ${topicName}, dan mengidentifikasi bagian-bagian utamanya.`,
+        durationMinutes: 35,
+        linkedTpIds
+      },
+      {
+        id: `exp-2-${Date.now()}`,
+        phase: 'APPLY',
+        description: `Peserta didik secara berpasangan/kelompok melakukan eksplorasi dan menyelesaikan latihan penerapan ${topicName}.`,
+        durationMinutes: 45,
+        linkedTpIds
+      },
+      {
+        id: `exp-3-${Date.now()}`,
+        phase: 'REFLECT',
+        description: `Peserta didik menyimpulkan pemahaman, melakukan refleksi diri tentang tantangan belajar, dan merencanakan langkah perbaikan.`,
+        durationMinutes: 20,
+        linkedTpIds
+      }
+    ],
+    deepLearningContext: {
+      principles: ['MINDFUL', 'MEANINGFUL', 'JOYFUL'],
+      graduateProfileDimensions: ['Bernalar Kritis', 'Mandiri']
+    },
+    graduateProfileDimensions: ['Bernalar Kritis', 'Mandiri'],
+    learningSteps: {
+      opening: [
+        {
+          id: `step-open-${Date.now()}`,
+          stepName: 'Kegiatan Awal / Apersepsi',
+          description: `Guru menyapa peserta didik, memeriksa presensi, menyampaikan tujuan pembelajaran ${tpCodeStr}${topicName}, serta memberikan pertanyaan pemantik.`,
+          durationMinutes: 10
+        }
+      ],
+      core: [
+        {
+          id: `step-core-${Date.now()}`,
+          stepName: 'Kegiatan Inti (Eksplorasi & Aplikasi)',
+          description: `Peserta didik terlibat aktif dalam aktivitas berkesadaran dan pemecahan masalah ${topicName} secara terbimbing dan mandiri.`,
+          durationMinutes: 70
+        }
+      ],
+      closing: [
+        {
+          id: `step-close-${Date.now()}`,
+          stepName: 'Kegiatan Penutup & Refleksi',
+          description: `Guru dan peserta didik merangkum poin penting pembelajaran, melakukan refleksi, dan menyampaikan tindak lanjut untuk pertemuan berikutnya.`,
+          durationMinutes: 10
+        }
+      ]
+    },
+    assessmentPlan: {
+      initial: [
+        {
+          id: `asm-init-${Date.now()}`,
+          type: 'INITIAL',
+          technique: 'Tanya Jawab / Diagnostik Singkat',
+          description: `Mengecek kesiapan dan pengetahuan awal peserta didik mengenai ${topicName}.`,
+          linkedTpIds
+        }
+      ],
+      formative: [
+        {
+          id: `asm-form-${Date.now()}`,
+          type: 'FORMATIVE',
+          technique: 'Observasi Performa & Diskusi Kelompok',
+          description: `Memantau keterlibatan, pemahaman konsep, dan sikap kolaboratif peserta didik selama proses belajar.`,
+          linkedTpIds
+        }
+      ],
+      summative: [
+        {
+          id: `asm-sum-${Date.now()}`,
+          type: 'SUMMATIVE',
+          technique: 'Tes Subformatif / Unjuk Kerja',
+          description: `Mengukur pencapaian Tujuan Pembelajaran ${tpCodeStr} pada akhir topik.`,
+          linkedTpIds
+        }
+      ]
+    },
+    differentiation: {
+      content: `Penyediaan materi visual/teks sesuai kesiapan belajar peserta didik.`,
+      process: `Bimbingan khusus bagi peserta didik yang memerlukan pendampingan dan tantangan tambahan bagi yang cepat paham.`,
+      product: `Peserta didik diberikan pilihan bentuk penyajian hasil tugas (diagram, tulisan, atau presentasi lisan).`
+    },
+    reflection: {
+      teacher: `Apakah seluruh peserta didik mencapai target pembelajaran? Kendala apa yang dihadapi dan bagaimana solusinya?`,
+      student: `Bagian mana dari pembelajaran ${topicName} yang paling menarik dan bagian mana yang masih memerlukan latihan?`
+    },
+    enrichmentPlan: `Pemberian soal tantangan kontekstual tingkat lanjut bagi peserta didik dengan pencapaian di atas rata-rata.`,
+    remedialPlan: `Bimbingan perorangan/kelompok kecil dan penyederhanaan latihan bagi peserta didik yang belum tuntas.`,
+    resources: [
+      { id: `res-1-${Date.now()}`, title: `Buku Siswa ${subject} ${grade}` },
+      { id: `res-2-${Date.now()}`, title: `Lembar Kerja Peserta Didik (LKPD) ${topicName}` }
+    ],
+    allocatedJP: params.atpItems && params.atpItems.length > 0 ? params.atpItems.reduce((acc, curr) => acc + (curr.jp || 2), 0) : 2
+  };
+}
+

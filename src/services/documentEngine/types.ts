@@ -74,6 +74,13 @@ export interface ZipExportOptions {
   existingRecords?: AppDocumentRecord[];
 }
 
+export interface ZipExportItemStatus {
+  type: DocumentType;
+  status: 'SUCCESS' | 'SKIPPED' | 'FAILED';
+  reason?: string;
+  filesGenerated?: string[];
+}
+
 export interface ZipExportResult {
   success: boolean;
   zipFileName: string;
@@ -82,6 +89,7 @@ export interface ZipExportResult {
   docxCount: number;
   foldersCreated: string[];
   snapshots: DocumentSnapshot[];
+  itemResults?: ZipExportItemStatus[];
 }
 
 export interface DocumentValidationResult {

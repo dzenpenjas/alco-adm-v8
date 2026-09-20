@@ -41,7 +41,9 @@ import {
   createEmptyLearningPlan,
   createAIDraftLearningPlan,
   confirmLearningPlan,
+  isSubstantiveLearningPlanChange,
 } from '../../services/learningPlanService';
+import { generateLearningPlanWithAI } from '../../services/aiService';
 import { generateModulAjar } from '../../services/documentEngine/generators/modulAjarGenerator';
 import { generatePdfDocument } from '../../services/documentEngine/renderers/pdf/pdfDocGenerators';
 import { DocumentGenerationContext } from '../../services/documentEngine/types';
@@ -82,6 +84,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'editor' | 'preview'>('overview');
   const [editorSection, setEditorSection] = useState<'identity' | 'objectives' | 'activities' | 'assessments' | 'followup' | 'reflection'>('identity');
   const [isExporting, setIsExporting] = useState<string | null>(null);
+  const [isGeneratingAI, setIsGeneratingAI] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   // Active plan resolution
@@ -125,34 +128,75 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
     showNotification('success', 'Rancangan Pembelajaran baru dibuat (Status: DRAFT). Silakan pilih TP/ATP.');
   };
 
-  // Create AI Assisted Draft
-  const handleCreateAIDraft = () => {
-    const draftPlan = createAIDraftLearningPlan({
-      academicSetting,
-      curriculumType: academicSetting.curriculum?.includes('2013') || academicSetting.curriculum?.includes('K13') ? 'K13' : 'KURIKULUM_MERDEKA',
-      tpIds: [],
-      atpItemIds: [],
-      aiDraft: {},
-      context: { tp, atp },
-    });
+  // Create AI Assisted Draft with real upstream context & Gemini integration
+  const handleCreateAIDraft = async () => {
+    const availableTps = tp?.items || [];
+    if (availableTps.length === 0) {
+      showNotification(
+        'error',
+        'Tidak ada Tujuan Pembelajaran (TP) yang tersedia untuk kelas/mapel ini. Silakan buat atau impor TP terlebih dahulu di menu Tujuan Pembelajaran.'
+      );
+      return;
+    }
 
-    onSavePlan(draftPlan);
-    setSelectedPlanId(draftPlan.id);
-    setActiveTab('editor');
-    showNotification('info', 'Draf AI berhasil dibuat dengan status DRAFT. Silakan pilih TP dan lengkapi komponen modul.');
+    // Auto-resolve upstream TPs and ATP items
+    const relevantTps = availableTps;
+    const relevantAtps = (atp?.items || []).filter((a) => relevantTps.some((t) => t.id === a.tpId));
+    const tpIds = relevantTps.map((t) => t.id);
+    const atpItemIds = relevantAtps.map((a) => a.id);
+
+    setIsGeneratingAI(true);
+    showNotification('info', 'Sedang menyusun Draf AI Modul Ajar berdasarkan Tujuan Pembelajaran canonical...');
+
+    try {
+      const aiDraftResult = await generateLearningPlanWithAI({
+        academicSetting,
+        tps: relevantTps,
+        atpItems: relevantAtps,
+      });
+
+      const draftPlan = createAIDraftLearningPlan({
+        academicSetting,
+        curriculumType: academicSetting.curriculum?.includes('2013') || academicSetting.curriculum?.includes('K13') ? 'K13' : 'KURIKULUM_MERDEKA',
+        tpIds,
+        atpItemIds,
+        aiDraft: aiDraftResult,
+        context: { tp, atp },
+      });
+
+      onSavePlan(draftPlan);
+      setSelectedPlanId(draftPlan.id);
+      setActiveTab('editor');
+      showNotification(
+        'success',
+        'Draf AI Modul Ajar berhasil disusun (Status: DRAFT). Silakan tinjau dan lengkapi komponen modul.'
+      );
+    } catch (err: any) {
+      console.error('Failed to generate AI Learning Plan:', err);
+      showNotification('error', `Gagal menyusun Draf AI: ${err.message || 'Terjadi kesalahan'}. Tidak ada draf yang dibuat.`);
+    } finally {
+      setIsGeneratingAI(false);
+    }
   };
 
-  // Update Plan Field
+  // Update Plan Field with SIAP status invalidation for substantive edits
   const handleUpdateActivePlan = (updates: Partial<LearningPlan>) => {
     if (!activePlan) return;
-    const updated: LearningPlan = {
+    const candidate: LearningPlan = {
       ...activePlan,
       ...updates,
-      // If critical TP links changed or updated, revert from SIAP to DRAFT if invalidated
-      status: activePlan.status === 'SIAP' && updates.tpIds ? 'DRAFT' : (updates.status || activePlan.status),
       updatedAt: new Date().toISOString(),
     };
-    onSavePlan(updated);
+
+    if (activePlan.status === 'SIAP' && isSubstantiveLearningPlanChange(activePlan, candidate)) {
+      candidate.status = 'DRAFT';
+      showNotification(
+        'info',
+        'Status Modul Ajar diperbarui menjadi DRAFT karena terdapat perubahan konten pedagogis. Silakan tinjau dan konfirmasi SIAP kembali.'
+      );
+    }
+
+    onSavePlan(candidate);
   };
 
   // Confirm Plan (Set to SIAP)
@@ -280,10 +324,20 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
             </button>
             <button
               onClick={handleCreateAIDraft}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
+              disabled={isGeneratingAI}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 cursor-pointer"
             >
-              <Sparkles className="w-4 h-4" />
-              Susun Draf AI
+              {isGeneratingAI ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  <span>Menyusun AI...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Susun Draf AI</span>
+                </>
+              )}
             </button>
           </div>
         </div>

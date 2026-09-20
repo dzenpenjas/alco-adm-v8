@@ -418,7 +418,7 @@ export const ZipExportModal: React.FC<ZipExportModalProps> = ({
 
           {/* Success Result Summary */}
           {exportResult && (
-            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs space-y-2 animate-fadeIn">
+            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs space-y-3 animate-fadeIn">
               <div className="flex items-center gap-2 font-bold text-emerald-800">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <span>Paket ZIP Berhasil Dibuat & Diunduh!</span>
@@ -428,7 +428,7 @@ export const ZipExportModal: React.FC<ZipExportModalProps> = ({
               </p>
               <div className="grid grid-cols-3 gap-2 pt-1 text-center">
                 <div className="bg-white p-2 rounded border border-emerald-200">
-                  <div className="text-[10px] text-slate-500 font-bold">TOTAL DOKUMEN</div>
+                  <div className="text-[10px] text-slate-500 font-bold">BERHASIL DIEKSPOR</div>
                   <div className="font-bold text-base text-emerald-800">{exportResult.exportedCount}</div>
                 </div>
                 <div className="bg-white p-2 rounded border border-emerald-200">
@@ -440,6 +440,44 @@ export const ZipExportModal: React.FC<ZipExportModalProps> = ({
                   <div className="font-bold text-base text-blue-700">{exportResult.docxCount}</div>
                 </div>
               </div>
+
+              {/* Partial status breakdown */}
+              {exportResult.itemResults && exportResult.itemResults.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-emerald-200/80 space-y-1.5 max-h-40 overflow-y-auto">
+                  <div className="text-[11px] font-bold text-emerald-900 mb-1">Rincian Status per Dokumen:</div>
+                  {exportResult.itemResults.map((item) => (
+                    <div
+                      key={item.type}
+                      className="flex items-center justify-between text-[11px] p-1.5 bg-white/80 rounded border border-emerald-100"
+                    >
+                      <span className="font-medium text-slate-800 truncate mr-2">
+                        {getDocDisplayName(item.type)}
+                      </span>
+                      {item.status === 'SUCCESS' && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          SUCCESS
+                        </span>
+                      )}
+                      {item.status === 'SKIPPED' && (
+                        <span
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300"
+                          title={item.reason}
+                        >
+                          SKIPPED ({item.reason || 'Data prasyarat belum lengkap'})
+                        </span>
+                      )}
+                      {item.status === 'FAILED' && (
+                        <span
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300"
+                          title={item.reason}
+                        >
+                          FAILED ({item.reason || 'Gagal render'})
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

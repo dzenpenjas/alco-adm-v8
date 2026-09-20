@@ -8,6 +8,7 @@ import {
   ZipExportFormat,
   ZipExportOptions,
   ZipExportResult,
+  ZipExportItemStatus,
 } from './types';
 import { getCurriculumType } from '../curriculumRules';
 import { resolveEffectiveContext, createDocumentSnapshot } from './snapshot';
@@ -287,6 +288,8 @@ export async function generateZipBundle(
   const totalSteps = targetTypes.length * (exportFormat === 'both' ? 2 : 1);
   let currentStep = 0;
 
+  const itemResults: ZipExportItemStatus[] = [];
+
   for (let i = 0; i < targetTypes.length; i++) {
     const type = targetTypes[i];
 
@@ -301,6 +304,11 @@ export async function generateZipBundle(
     // Strict validation check
     const validation = validateDocumentRequirements(type, effectiveContext);
     if (!validation.isValid) {
+      itemResults.push({
+        type,
+        status: 'SKIPPED',
+        reason: validation.missingFields.join('; '),
+      });
       continue;
     }
 
@@ -314,6 +322,9 @@ export async function generateZipBundle(
     folderItemCount[folderCategory] = (folderItemCount[folderCategory] || 0) + 1;
     const seqNum = folderItemCount[folderCategory];
 
+    const filesGenerated: string[] = [];
+    let itemError: string | null = null;
+
     // 1. PDF Export (using PDF Renderer)
     if (exportFormat === 'pdf' || exportFormat === 'both') {
       try {
@@ -325,6 +336,7 @@ export async function generateZipBundle(
         if (pdfResult.blob && pdfResult.blob.size > 0) {
           const pdfFileName = formatDocumentZipFileName(type, 'pdf', effectiveContext, seqNum);
           targetFolder.file(pdfFileName, pdfResult.blob);
+          filesGenerated.push(pdfFileName);
           pdfCount++;
           if (exportFormat === 'pdf') {
             exportedCount++;
@@ -333,8 +345,9 @@ export async function generateZipBundle(
             snapshots.push(pdfResult.snapshot);
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.warn(`[ZIP Engine] Error rendering PDF for ${type}:`, err);
+        itemError = err?.message || 'Gagal merender PDF';
       }
     }
 
@@ -353,6 +366,7 @@ export async function generateZipBundle(
         if (docxResult.blob && docxResult.blob.size > 0) {
           const docxFileName = formatDocumentZipFileName(type, 'docx', effectiveContext, seqNum);
           targetFolder.file(docxFileName, docxResult.blob);
+          filesGenerated.push(docxFileName);
           docxCount++;
           if (exportFormat === 'docx') {
             exportedCount++;
@@ -361,13 +375,28 @@ export async function generateZipBundle(
             snapshots.push(docxResult.record.snapshot);
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.warn(`[ZIP Engine] Error rendering DOCX for ${type}:`, err);
+        itemError = err?.message || 'Gagal merender DOCX';
       }
     }
 
     if (exportFormat === 'both' && (pdfCount > 0 || docxCount > 0)) {
       exportedCount = Math.max(pdfCount, docxCount);
+    }
+
+    if (filesGenerated.length > 0) {
+      itemResults.push({
+        type,
+        status: 'SUCCESS',
+        filesGenerated,
+      });
+    } else {
+      itemResults.push({
+        type,
+        status: 'FAILED',
+        reason: itemError || 'Gagal membuat file dokumen',
+      });
     }
   }
 
@@ -396,5 +425,6 @@ export async function generateZipBundle(
     docxCount,
     foldersCreated: Array.from(foldersCreatedSet),
     snapshots,
+    itemResults,
   };
 }

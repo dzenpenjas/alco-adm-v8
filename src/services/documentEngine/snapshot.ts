@@ -15,7 +15,7 @@ export function createDocumentSnapshot(
   const docMode = modeOverride || context.documentMode || 'data';
 
   return {
-    schoolName: (school?.name || 'Satuan Pendidikan').trim(),
+    schoolName: (school?.name || '').trim(),
     npsn: (school?.npsn || '').trim(),
     schoolNpsn: (school?.npsn || '').trim(),
     schoolAddress: (school?.address || '').trim(),
@@ -34,7 +34,7 @@ export function createDocumentSnapshot(
     grade: (academicSetting?.grade || '').trim(),
     subject: (academicSetting?.subject || '').trim(),
     phase: (academicSetting?.phase || '').trim(),
-    curriculum: (academicSetting?.curriculum || 'Kurikulum Merdeka').trim(),
+    curriculum: (academicSetting?.curriculum || '').trim(),
     curriculumType: getCurriculumType(academicSetting?.curriculum || academicSetting?.curriculumType),
     documentMode: docMode,
     studentCount: students?.length || 0,
@@ -87,11 +87,11 @@ export function resolveEffectiveContext(
     academicSetting: {
       ...context.academicSetting,
       academicYear: snap.academicYear || context.academicSetting?.academicYear || '',
-      semester: ((snap.semester as '1 (Ganjil)' | '2 (Genap)') || context.academicSetting?.semester || '1 (Ganjil)') as '1 (Ganjil)' | '2 (Genap)',
+      semester: (snap.semester || context.academicSetting?.semester || '') as any,
       grade: snap.grade || context.academicSetting?.grade || '',
       phase: snap.phase || context.academicSetting?.phase || '',
       subject: snap.subject || context.academicSetting?.subject || '',
-      curriculum: snap.curriculum || context.academicSetting?.curriculum || 'Kurikulum Merdeka',
+      curriculum: snap.curriculum || context.academicSetting?.curriculum || '',
       curriculumType: snap.curriculumType || getCurriculumType(snap.curriculum || context.academicSetting?.curriculum),
     },
     documentMode: snap.documentMode || context.documentMode || 'data',
