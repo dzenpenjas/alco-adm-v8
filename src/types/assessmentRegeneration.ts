@@ -20,12 +20,27 @@ export type AssessmentRegenerationTarget =
   | 'OBSERVATION_CONTENT'
   | 'COVERAGE_UNIT';
 
+export type AssessmentRegenerationLocatorKind =
+  | 'BLUEPRINT_ITEM'
+  | 'COVERAGE_UNIT'
+  | 'INSTRUMENT'
+  | 'INSTRUMENT_ITEM'
+  | 'ANSWER_KEY'
+  | 'SCORING_GUIDE'
+  | 'RUBRIC';
+
+export interface AssessmentRegenerationLocator {
+  kind: AssessmentRegenerationLocatorKind;
+  id: string;
+}
+
 export interface AssessmentRegenerationRequest {
   packageId: string;
   expectedPackageRevision: number;
 
   target: AssessmentRegenerationTarget;
   targetId: string; // ID of the specific target item/instrument/blueprint
+  locator?: AssessmentRegenerationLocator;
 
   requestedFields?: string[];
 
@@ -41,6 +56,7 @@ export interface AssessmentRegenerationContract {
 
   target: AssessmentRegenerationTarget;
   targetId: string;
+  locator?: AssessmentRegenerationLocator;
 
   immutableContext: {
     coverageUnitId?: string;
@@ -69,6 +85,7 @@ export interface AssessmentRegenerationProvider {
 export interface AssessmentRegenerationDraft {
   target: AssessmentRegenerationTarget;
   targetId: string;
+  locator?: AssessmentRegenerationLocator;
   proposedChanges: any;
 }
 

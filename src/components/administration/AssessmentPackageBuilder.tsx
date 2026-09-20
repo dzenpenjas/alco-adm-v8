@@ -391,7 +391,8 @@ export const AssessmentPackageBuilder: React.FC<AssessmentPackageBuilderProps> =
   const handleRegenerateTarget = async (
     target: AssessmentRegenerationTarget,
     targetId: string,
-    explicitOverride: boolean = false
+    explicitOverride: boolean = false,
+    locator?: import('../../types').AssessmentRegenerationLocator
   ) => {
     if (!activePackage || !selectedPlan) return;
     setIsRegenerating(true);
@@ -403,6 +404,7 @@ export const AssessmentPackageBuilder: React.FC<AssessmentPackageBuilderProps> =
         expectedPackageRevision: activePackage.revision ?? 1,
         target,
         targetId,
+        locator,
         explicitTeacherOverride: explicitOverride,
       };
 
@@ -466,7 +468,7 @@ export const AssessmentPackageBuilder: React.FC<AssessmentPackageBuilderProps> =
           'Perhatian: Komponen ini telah Anda edit secara manual. Apakah Anda yakin ingin menimpa (overwrite) perubahan Anda dengan hasil generasi baru dari AI?'
         );
         if (confirmOverwrite) {
-          await handleRegenerateTarget(target, targetId, true);
+          await handleRegenerateTarget(target, targetId, true, locator);
         }
       } else {
         const msg = result.issues?.join(', ') || 'Gagal melakukan regenerasi granular.';
@@ -2041,7 +2043,7 @@ export const AssessmentPackageBuilder: React.FC<AssessmentPackageBuilderProps> =
                                 <div className="flex-shrink-0">
                                   {action.eligible && action.target && action.targetId ? (
                                     <button
-                                      onClick={() => handleRegenerateTarget(action.target!, action.targetId!)}
+                                      onClick={() => handleRegenerateTarget(action.target!, action.targetId!, false, action.locator)}
                                       disabled={isRegenerating}
                                       className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold flex items-center gap-1 shadow-sm transition"
                                     >

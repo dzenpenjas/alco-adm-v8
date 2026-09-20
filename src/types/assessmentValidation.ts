@@ -45,6 +45,10 @@ export interface AssessmentValidationFinding {
   blueprintItemId?: string;
   instrumentId?: string;
   instrumentItemId?: string;
+  answerKeyId?: string;
+  scoringGuideId?: string;
+  rubricId?: string;
+  targetField?: 'ITEM_PROMPT' | 'STIMULUS';
 
   message: string;
   source: AssessmentValidationFindingSource;

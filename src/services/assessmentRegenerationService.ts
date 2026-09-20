@@ -68,13 +68,17 @@ export class AssessmentRegenerationService {
     }
 
     // 2. Locate Target and Verify Existence
-    const targetLocator = this.locateTarget(pkg, request.target, request.targetId);
+    const targetLocator = this.locateTarget(pkg, request.target, request.targetId, request.locator);
     if (!targetLocator.found) {
+      const issue =
+        targetLocator.error === 'AMBIGUOUS_TARGET'
+          ? `Target '${request.target}' with ID '${request.targetId}' is ambiguous (${targetLocator.matchCount} matches found). Exact unique resolution required.`
+          : targetLocator.error === 'INVALID_LOCATOR_KIND'
+          ? `Invalid locator kind for target '${request.target}'.`
+          : `Target '${request.target}' with ID '${request.targetId}' not found in the assessment package.`;
       return {
         status: 'FAILED',
-        issues: [
-          `Target '${request.target}' with ID '${request.targetId}' not found in the assessment package.`,
-        ],
+        issues: [issue],
       };
     }
 
@@ -106,6 +110,7 @@ export class AssessmentRegenerationService {
       packageRevision: pkgRevision,
       target: request.target,
       targetId: request.targetId,
+      locator: request.locator,
       immutableContext: {
         coverageUnitId,
         objectiveRefId,
@@ -281,13 +286,17 @@ export class AssessmentRegenerationService {
 
   /**
    * Locates the target element and its context in the package.
+   * Enforces exact unique resolution: 0 matches -> TARGET_NOT_FOUND, 1 match -> valid, >1 matches -> AMBIGUOUS_TARGET.
    */
   private locateTarget(
     pkg: AssessmentPackage,
     target: AssessmentRegenerationTarget,
-    targetId: string
+    targetId: string,
+    locator?: import('../types').AssessmentRegenerationLocator
   ): {
     found: boolean;
+    error?: 'TARGET_NOT_FOUND' | 'AMBIGUOUS_TARGET' | 'INVALID_LOCATOR_KIND';
+    matchCount?: number;
     targetElement?: any;
     coverageUnitId?: string;
     objectiveRefId?: string;
@@ -301,8 +310,13 @@ export class AssessmentRegenerationService {
     switch (target) {
       case 'INDICATOR':
       case 'MATERIAL_CONTEXT': {
-        const bp = (pkg.blueprintItems || []).find((b) => b.id === targetId);
-        if (!bp) return { found: false };
+        if (locator && locator.kind !== 'BLUEPRINT_ITEM') {
+          return { found: false, error: 'INVALID_LOCATOR_KIND' };
+        }
+        const candidates = (pkg.blueprintItems || []).filter((b) => b.id === targetId);
+        if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
+        if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
+        const bp = candidates[0];
         return {
           found: true,
           targetElement: bp,
@@ -324,40 +338,58 @@ export class AssessmentRegenerationService {
       case 'ITEM_PROMPT':
       case 'STIMULUS':
       case 'OPTIONS': {
+        if (locator && locator.kind !== 'INSTRUMENT_ITEM') {
+          return { found: false, error: 'INVALID_LOCATOR_KIND' };
+        }
+        const matchingItems: { item: any; inst: any }[] = [];
         for (const inst of pkg.instruments || []) {
           if ('items' in inst && Array.isArray(inst.items)) {
-            const item: any = inst.items.find((i: any) => i.id === targetId);
-            if (item) {
-              const bp = (pkg.blueprintItems || []).find(
-                (b) => b.instrumentItemIds && b.instrumentItemIds.includes(targetId)
-              );
-              return {
-                found: true,
-                targetElement: item,
-                coverageUnitId: item.coverageUnitId || bp?.coverageUnitId,
-                objectiveRefId: bp?.objectiveRefId,
-                criterionId: bp?.criterionId,
-                instrumentType: inst.type,
-                allocationUnit: 'ITEM',
-                preservedContent: { id: item.id, itemType: item.itemType },
-                editableContent:
-                  target === 'ITEM_PROMPT'
-                    ? item.prompt
-                    : target === 'STIMULUS'
-                    ? item.stimulus
-                    : item.options,
-              };
+            for (const item of inst.items) {
+              if (item.id === targetId) {
+                matchingItems.push({ item, inst });
+              }
             }
           }
         }
-        return { found: false };
+        if (matchingItems.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
+        if (matchingItems.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: matchingItems.length };
+        const { item, inst } = matchingItems[0];
+        const matchingBps = (pkg.blueprintItems || []).filter(
+          (b) => b.instrumentItemIds && b.instrumentItemIds.includes(targetId)
+        );
+        const bp = matchingBps.length === 1 ? matchingBps[0] : undefined;
+        return {
+          found: true,
+          targetElement: item,
+          coverageUnitId: item.coverageUnitId || bp?.coverageUnitId,
+          objectiveRefId: bp?.objectiveRefId,
+          criterionId: bp?.criterionId,
+          instrumentType: inst.type,
+          allocationUnit: 'ITEM',
+          preservedContent: { id: item.id, itemType: item.itemType },
+          editableContent:
+            target === 'ITEM_PROMPT'
+              ? item.prompt
+              : target === 'STIMULUS'
+              ? item.stimulus
+              : item.options,
+        };
       }
 
       case 'PROPOSED_ANSWER': {
-        const ak = (pkg.answerKeys || []).find(
-          (a) => a.id === targetId || a.instrumentItemId === targetId
-        );
-        if (!ak) return { found: false };
+        let candidates: any[] = [];
+        if (locator?.kind === 'ANSWER_KEY') {
+          candidates = (pkg.answerKeys || []).filter((a) => a.id === locator.id);
+        } else if (locator?.kind === 'INSTRUMENT_ITEM') {
+          candidates = (pkg.answerKeys || []).filter((a) => a.instrumentItemId === locator.id);
+        } else {
+          candidates = (pkg.answerKeys || []).filter(
+            (a) => a.id === targetId || a.instrumentItemId === targetId
+          );
+        }
+        if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
+        if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
+        const ak = candidates[0];
         const inst = pkg.instruments.find((i) => i.id === ak.instrumentId);
         return {
           found: true,
@@ -379,10 +411,19 @@ export class AssessmentRegenerationService {
       }
 
       case 'SCORING_GUIDE': {
-        const sg = (pkg.scoringGuides || []).find(
-          (s) => s.id === targetId || s.instrumentItemId === targetId
-        );
-        if (!sg) return { found: false };
+        let candidates: any[] = [];
+        if (locator?.kind === 'SCORING_GUIDE') {
+          candidates = (pkg.scoringGuides || []).filter((s) => s.id === locator.id);
+        } else if (locator?.kind === 'INSTRUMENT_ITEM') {
+          candidates = (pkg.scoringGuides || []).filter((s) => s.instrumentItemId === locator.id);
+        } else {
+          candidates = (pkg.scoringGuides || []).filter(
+            (s) => s.id === targetId || s.instrumentItemId === targetId
+          );
+        }
+        if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
+        if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
+        const sg = candidates[0];
         return {
           found: true,
           targetElement: sg,
@@ -401,10 +442,19 @@ export class AssessmentRegenerationService {
       }
 
       case 'RUBRIC': {
-        const rb = (pkg.rubrics || []).find(
-          (r) => r.id === targetId || r.instrumentItemId === targetId
-        );
-        if (!rb) return { found: false };
+        let candidates: any[] = [];
+        if (locator?.kind === 'RUBRIC') {
+          candidates = (pkg.rubrics || []).filter((r) => r.id === locator.id);
+        } else if (locator?.kind === 'INSTRUMENT_ITEM') {
+          candidates = (pkg.rubrics || []).filter((r) => r.instrumentItemId === locator.id);
+        } else {
+          candidates = (pkg.rubrics || []).filter(
+            (r) => r.id === targetId || r.instrumentItemId === targetId
+          );
+        }
+        if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
+        if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
+        const rb = candidates[0];
         return {
           found: true,
           targetElement: rb,
@@ -418,12 +468,17 @@ export class AssessmentRegenerationService {
       }
 
       case 'TASK': {
-        const inst = (pkg.instruments || []).find(
+        if (locator && locator.kind !== 'INSTRUMENT') {
+          return { found: false, error: 'INVALID_LOCATOR_KIND' };
+        }
+        const candidates = (pkg.instruments || []).filter(
           (i) =>
             i.id === targetId &&
             ['PERFORMANCE', 'ASSIGNMENT', 'PROJECT', 'PRODUCT'].includes(i.type)
         );
-        if (!inst) return { found: false };
+        if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
+        if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
+        const inst = candidates[0];
         return {
           found: true,
           targetElement: inst,
@@ -435,10 +490,15 @@ export class AssessmentRegenerationService {
       }
 
       case 'EVIDENCE_REQUIREMENT': {
-        const inst = (pkg.instruments || []).find(
+        if (locator && locator.kind !== 'INSTRUMENT') {
+          return { found: false, error: 'INVALID_LOCATOR_KIND' };
+        }
+        const candidates = (pkg.instruments || []).filter(
           (i) => i.id === targetId && i.type === 'PORTFOLIO'
         );
-        if (!inst) return { found: false };
+        if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
+        if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
+        const inst = candidates[0];
         return {
           found: true,
           targetElement: inst,
@@ -450,10 +510,15 @@ export class AssessmentRegenerationService {
       }
 
       case 'OBSERVATION_CONTENT': {
-        const inst = (pkg.instruments || []).find(
+        if (locator && locator.kind !== 'INSTRUMENT') {
+          return { found: false, error: 'INVALID_LOCATOR_KIND' };
+        }
+        const candidates = (pkg.instruments || []).filter(
           (i) => i.id === targetId && i.type === 'OBSERVATION'
         );
-        if (!inst) return { found: false };
+        if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
+        if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
+        const inst = candidates[0];
         return {
           found: true,
           targetElement: inst,
@@ -465,9 +530,13 @@ export class AssessmentRegenerationService {
       }
 
       case 'COVERAGE_UNIT': {
-        // COVERAGE_UNIT maps to one existing coverageUnitId
-        const bp = (pkg.blueprintItems || []).find((b) => b.coverageUnitId === targetId);
-        if (!bp) return { found: false };
+        if (locator && locator.kind !== 'COVERAGE_UNIT') {
+          return { found: false, error: 'INVALID_LOCATOR_KIND' };
+        }
+        const candidates = (pkg.blueprintItems || []).filter((b) => b.coverageUnitId === targetId);
+        if (candidates.length === 0) return { found: false, error: 'TARGET_NOT_FOUND', matchCount: 0 };
+        if (candidates.length > 1) return { found: false, error: 'AMBIGUOUS_TARGET', matchCount: candidates.length };
+        const bp = candidates[0];
         return {
           found: true,
           targetElement: bp,
@@ -485,7 +554,7 @@ export class AssessmentRegenerationService {
       }
 
       default:
-        return { found: false };
+        return { found: false, error: 'TARGET_NOT_FOUND' };
     }
   }
 
@@ -873,6 +942,7 @@ export class AssessmentRegenerationService {
       draft: {
         target,
         targetId,
+        locator: contract.locator,
         proposedChanges: proposed,
       },
     };
@@ -880,262 +950,327 @@ export class AssessmentRegenerationService {
 
   /**
    * Applies the validated draft changes to the cloned package.
+   * Enforces exact unique match (0 match -> fail, >1 match -> ambiguous/fail).
    */
   private applyDraftChanges(
     pkg: AssessmentPackage,
     draft: AssessmentRegenerationDraft
   ): { success: boolean; reason?: string } {
     const proposed = draft.proposedChanges;
+    const locator = draft.locator;
+    const targetId = draft.targetId;
 
     switch (draft.target) {
-      case 'INDICATOR': {
-        const bp: any = (pkg.blueprintItems || []).find((b) => b.id === draft.targetId);
-        if (bp) {
+      case 'INDICATOR':
+      case 'MATERIAL_CONTEXT': {
+        const candidates = (pkg.blueprintItems || []).filter((b) => b.id === targetId);
+        if (candidates.length !== 1) {
+          return {
+            success: false,
+            reason: candidates.length === 0 ? 'Blueprint item not found' : 'Ambiguous blueprint item',
+          };
+        }
+        const bp: any = candidates[0];
+        if (draft.target === 'INDICATOR') {
           bp.assessmentIndicator = proposed.assessmentIndicator;
           bp.provenance = this.updateFieldProvenance(
             bp.provenance,
             'assessmentIndicator',
             'AI_REGENERATED'
           );
-          return { success: true };
-        }
-        break;
-      }
-
-      case 'MATERIAL_CONTEXT': {
-        const bp: any = (pkg.blueprintItems || []).find((b) => b.id === draft.targetId);
-        if (bp) {
+        } else {
           bp.materialOrContext = proposed.materialOrContext;
           bp.provenance = this.updateFieldProvenance(
             bp.provenance,
             'materialOrContext',
             'AI_REGENERATED'
           );
-          return { success: true };
         }
-        break;
+        return { success: true };
       }
 
       case 'ITEM_PROMPT':
       case 'STIMULUS':
       case 'OPTIONS': {
+        const matches: { item: any; inst: any }[] = [];
         for (const inst of pkg.instruments || []) {
           if ('items' in inst && Array.isArray(inst.items)) {
-            const item: any = inst.items.find((i: any) => i.id === draft.targetId);
-            if (item) {
-              if (draft.target === 'ITEM_PROMPT') {
-                item.prompt = proposed.prompt;
-                item.provenance = this.updateFieldProvenance(item.provenance, 'prompt', 'AI_REGENERATED');
-              } else if (draft.target === 'STIMULUS') {
-                item.stimulus = proposed.stimulus;
-                if (proposed.stimulusOrigin) item.stimulusOrigin = proposed.stimulusOrigin;
-                if (proposed.stimulusSource) item.stimulusSource = proposed.stimulusSource;
-                item.provenance = this.updateFieldProvenance(
-                  item.provenance,
-                  'stimulus',
-                  'AI_REGENERATED'
-                );
-              } else if (draft.target === 'OPTIONS') {
-                item.options = proposed.options;
-                item.provenance = this.updateFieldProvenance(
-                  item.provenance,
-                  'options',
-                  'AI_REGENERATED'
-                );
+            for (const item of inst.items) {
+              if (item.id === targetId) {
+                matches.push({ item, inst });
               }
-              return { success: true };
             }
           }
         }
-        break;
+        if (matches.length !== 1) {
+          return {
+            success: false,
+            reason: matches.length === 0 ? 'Instrument item not found' : 'Ambiguous instrument item',
+          };
+        }
+        const { item } = matches[0];
+        if (draft.target === 'ITEM_PROMPT') {
+          item.prompt = proposed.prompt;
+          item.provenance = this.updateFieldProvenance(item.provenance, 'prompt', 'AI_REGENERATED');
+        } else if (draft.target === 'STIMULUS') {
+          item.stimulus = proposed.stimulus;
+          if (proposed.stimulusOrigin) item.stimulusOrigin = proposed.stimulusOrigin;
+          if (proposed.stimulusSource) item.stimulusSource = proposed.stimulusSource;
+          item.provenance = this.updateFieldProvenance(
+            item.provenance,
+            'stimulus',
+            'AI_REGENERATED'
+          );
+        } else if (draft.target === 'OPTIONS') {
+          item.options = proposed.options;
+          item.provenance = this.updateFieldProvenance(
+            item.provenance,
+            'options',
+            'AI_REGENERATED'
+          );
+        }
+        return { success: true };
       }
 
       case 'PROPOSED_ANSWER': {
-        const ak: any = (pkg.answerKeys || []).find(
-          (a) => a.id === draft.targetId || a.instrumentItemId === draft.targetId
-        );
-        if (ak) {
-          if ('value' in proposed) ak.value = proposed.value;
-          if ('optionIds' in proposed) ak.optionIds = proposed.optionIds;
-          if ('matchingPairs' in proposed) ak.matchingPairs = proposed.matchingPairs;
-          if ('categoryAnswers' in proposed) ak.categoryAnswers = proposed.categoryAnswers;
-          ak.provenance = this.updateFieldProvenance(ak.provenance, 'answer', 'AI_REGENERATED');
-          return { success: true };
+        let candidates: any[] = [];
+        if (locator?.kind === 'ANSWER_KEY') {
+          candidates = (pkg.answerKeys || []).filter((a) => a.id === locator.id);
+        } else if (locator?.kind === 'INSTRUMENT_ITEM') {
+          candidates = (pkg.answerKeys || []).filter((a) => a.instrumentItemId === locator.id);
+        } else {
+          candidates = (pkg.answerKeys || []).filter(
+            (a) => a.id === targetId || a.instrumentItemId === targetId
+          );
         }
-        break;
+        if (candidates.length !== 1) {
+          return {
+            success: false,
+            reason: candidates.length === 0 ? 'Answer key not found' : 'Ambiguous answer key',
+          };
+        }
+        const ak: any = candidates[0];
+        if ('value' in proposed) ak.value = proposed.value;
+        if ('optionIds' in proposed) ak.optionIds = proposed.optionIds;
+        if ('matchingPairs' in proposed) ak.matchingPairs = proposed.matchingPairs;
+        if ('categoryAnswers' in proposed) ak.categoryAnswers = proposed.categoryAnswers;
+        ak.provenance = this.updateFieldProvenance(ak.provenance, 'answer', 'AI_REGENERATED');
+        return { success: true };
       }
 
       case 'SCORING_GUIDE': {
-        const sg: any = (pkg.scoringGuides || []).find(
-          (s) => s.id === draft.targetId || s.instrumentItemId === draft.targetId
-        );
-        if (sg) {
-          if ('title' in proposed) {
-            sg.title = proposed.title;
-            sg.provenance = this.updateFieldProvenance(sg.provenance, 'title', 'AI_REGENERATED');
-          }
-          if ('guideType' in proposed) {
-            sg.guideType = proposed.guideType;
-            sg.provenance = this.updateFieldProvenance(sg.provenance, 'guideType', 'AI_REGENERATED');
-          }
-          if ('instructions' in proposed) {
-            sg.instructions = proposed.instructions;
-            sg.provenance = this.updateFieldProvenance(sg.provenance, 'instructions', 'AI_REGENERATED');
-          }
-          if ('maxScore' in proposed) {
-            sg.maxScore = proposed.maxScore;
-            sg.provenance = this.updateFieldProvenance(sg.provenance, 'maxScore', 'AI_REGENERATED');
-          }
-          return { success: true };
+        let candidates: any[] = [];
+        if (locator?.kind === 'SCORING_GUIDE') {
+          candidates = (pkg.scoringGuides || []).filter((s) => s.id === locator.id);
+        } else if (locator?.kind === 'INSTRUMENT_ITEM') {
+          candidates = (pkg.scoringGuides || []).filter((s) => s.instrumentItemId === locator.id);
+        } else {
+          candidates = (pkg.scoringGuides || []).filter(
+            (s) => s.id === targetId || s.instrumentItemId === targetId
+          );
         }
-        break;
+        if (candidates.length !== 1) {
+          return {
+            success: false,
+            reason: candidates.length === 0 ? 'Scoring guide not found' : 'Ambiguous scoring guide',
+          };
+        }
+        const sg: any = candidates[0];
+        if ('title' in proposed) {
+          sg.title = proposed.title;
+          sg.provenance = this.updateFieldProvenance(sg.provenance, 'title', 'AI_REGENERATED');
+        }
+        if ('guideType' in proposed) {
+          sg.guideType = proposed.guideType;
+          sg.provenance = this.updateFieldProvenance(sg.provenance, 'guideType', 'AI_REGENERATED');
+        }
+        if ('instructions' in proposed) {
+          sg.instructions = proposed.instructions;
+          sg.provenance = this.updateFieldProvenance(sg.provenance, 'instructions', 'AI_REGENERATED');
+        }
+        if ('maxScore' in proposed) {
+          sg.maxScore = proposed.maxScore;
+          sg.provenance = this.updateFieldProvenance(sg.provenance, 'maxScore', 'AI_REGENERATED');
+        }
+        return { success: true };
       }
 
       case 'RUBRIC': {
-        const rb: any = (pkg.rubrics || []).find(
-          (r) => r.id === draft.targetId || r.instrumentItemId === draft.targetId
-        );
-        if (rb) {
-          if ('title' in proposed) {
-            rb.title = proposed.title || rb.title;
-            rb.provenance = this.updateFieldProvenance(rb.provenance, 'title', 'AI_REGENERATED');
-          }
-          if ('criteria' in proposed) {
-            rb.criteria = proposed.criteria;
-            rb.provenance = this.updateFieldProvenance(rb.provenance, 'criteria', 'AI_REGENERATED');
-          }
-          if ('scale' in proposed) {
-            rb.scale = proposed.scale;
-            rb.provenance = this.updateFieldProvenance(rb.provenance, 'scale', 'AI_REGENERATED');
-          }
-          return { success: true };
+        let candidates: any[] = [];
+        if (locator?.kind === 'RUBRIC') {
+          candidates = (pkg.rubrics || []).filter((r) => r.id === locator.id);
+        } else if (locator?.kind === 'INSTRUMENT_ITEM') {
+          candidates = (pkg.rubrics || []).filter((r) => r.instrumentItemId === locator.id);
+        } else {
+          candidates = (pkg.rubrics || []).filter(
+            (r) => r.id === targetId || r.instrumentItemId === targetId
+          );
         }
-        break;
+        if (candidates.length !== 1) {
+          return {
+            success: false,
+            reason: candidates.length === 0 ? 'Rubric not found' : 'Ambiguous rubric',
+          };
+        }
+        const rb: any = candidates[0];
+        if ('title' in proposed) {
+          rb.title = proposed.title || rb.title;
+          rb.provenance = this.updateFieldProvenance(rb.provenance, 'title', 'AI_REGENERATED');
+        }
+        if ('criteria' in proposed) {
+          rb.criteria = proposed.criteria;
+          rb.provenance = this.updateFieldProvenance(rb.provenance, 'criteria', 'AI_REGENERATED');
+        }
+        if ('scale' in proposed) {
+          rb.scale = proposed.scale;
+          rb.provenance = this.updateFieldProvenance(rb.provenance, 'scale', 'AI_REGENERATED');
+        }
+        return { success: true };
       }
 
       case 'TASK': {
-        const inst: any = (pkg.instruments || []).find((i) => i.id === draft.targetId);
-        if (inst) {
-          if (inst.type === 'PERFORMANCE') {
-            inst.task = proposed.task || inst.task;
-            inst.provenance = this.updateFieldProvenance(inst.provenance, 'task', 'AI_REGENERATED');
-            if (proposed.instructions) {
-              inst.instructions = proposed.instructions || inst.instructions;
-              inst.provenance = this.updateFieldProvenance(
-                inst.provenance,
-                'instructions',
-                'AI_REGENERATED'
-              );
-            }
-          } else if (inst.type === 'ASSIGNMENT') {
+        const candidates = (pkg.instruments || []).filter(
+          (i) =>
+            i.id === targetId &&
+            ['PERFORMANCE', 'ASSIGNMENT', 'PROJECT', 'PRODUCT'].includes(i.type)
+        );
+        if (candidates.length !== 1) {
+          return {
+            success: false,
+            reason: candidates.length === 0 ? 'Task instrument not found' : 'Ambiguous task instrument',
+          };
+        }
+        const inst: any = candidates[0];
+        if (inst.type === 'PERFORMANCE') {
+          inst.task = proposed.task || inst.task;
+          inst.provenance = this.updateFieldProvenance(inst.provenance, 'task', 'AI_REGENERATED');
+          if (proposed.instructions) {
             inst.instructions = proposed.instructions || inst.instructions;
             inst.provenance = this.updateFieldProvenance(
               inst.provenance,
               'instructions',
               'AI_REGENERATED'
             );
-            if (proposed.expectedOutput) {
-              inst.expectedOutput = proposed.expectedOutput || inst.expectedOutput;
-              inst.provenance = this.updateFieldProvenance(
-                inst.provenance,
-                'expectedOutput',
-                'AI_REGENERATED'
-              );
-            }
-          } else if (inst.type === 'PROJECT') {
-            inst.projectBrief = proposed.projectBrief || inst.projectBrief;
-            inst.provenance = this.updateFieldProvenance(
-              inst.provenance,
-              'projectBrief',
-              'AI_REGENERATED'
-            );
-            if (proposed.expectedDeliverable) {
-              inst.expectedDeliverable = proposed.expectedDeliverable || inst.expectedDeliverable;
-              inst.provenance = this.updateFieldProvenance(
-                inst.provenance,
-                'expectedDeliverable',
-                'AI_REGENERATED'
-              );
-            }
-          } else if (inst.type === 'PRODUCT') {
-            inst.productBrief = proposed.productBrief || inst.productBrief;
-            inst.provenance = this.updateFieldProvenance(
-              inst.provenance,
-              'productBrief',
-              'AI_REGENERATED'
-            );
-            if (proposed.expectedProduct) {
-              inst.expectedProduct = proposed.expectedProduct || inst.expectedProduct;
-              inst.provenance = this.updateFieldProvenance(
-                inst.provenance,
-                'expectedProduct',
-                'AI_REGENERATED'
-              );
-            }
           }
-          return { success: true };
+        } else if (inst.type === 'ASSIGNMENT') {
+          inst.instructions = proposed.instructions || inst.instructions;
+          inst.provenance = this.updateFieldProvenance(
+            inst.provenance,
+            'instructions',
+            'AI_REGENERATED'
+          );
+          if (proposed.expectedOutput) {
+            inst.expectedOutput = proposed.expectedOutput || inst.expectedOutput;
+            inst.provenance = this.updateFieldProvenance(
+              inst.provenance,
+              'expectedOutput',
+              'AI_REGENERATED'
+            );
+          }
+        } else if (inst.type === 'PROJECT') {
+          inst.projectBrief = proposed.projectBrief || inst.projectBrief;
+          inst.provenance = this.updateFieldProvenance(
+            inst.provenance,
+            'projectBrief',
+            'AI_REGENERATED'
+          );
+          if (proposed.expectedDeliverable) {
+            inst.expectedDeliverable = proposed.expectedDeliverable || inst.expectedDeliverable;
+            inst.provenance = this.updateFieldProvenance(
+              inst.provenance,
+              'expectedDeliverable',
+              'AI_REGENERATED'
+            );
+          }
+        } else if (inst.type === 'PRODUCT') {
+          inst.productBrief = proposed.productBrief || inst.productBrief;
+          inst.provenance = this.updateFieldProvenance(
+            inst.provenance,
+            'productBrief',
+            'AI_REGENERATED'
+          );
+          if (proposed.expectedProduct) {
+            inst.expectedProduct = proposed.expectedProduct || inst.expectedProduct;
+            inst.provenance = this.updateFieldProvenance(
+              inst.provenance,
+              'expectedProduct',
+              'AI_REGENERATED'
+            );
+          }
         }
-        break;
+        return { success: true };
       }
 
       case 'EVIDENCE_REQUIREMENT': {
-        const inst: any = (pkg.instruments || []).find(
-          (i) => i.id === draft.targetId && i.type === 'PORTFOLIO'
+        const candidates = (pkg.instruments || []).filter(
+          (i) => i.id === targetId && i.type === 'PORTFOLIO'
         );
-        if (inst) {
-          (inst as any).evidenceRequirements = proposed.evidenceRequirements;
-          inst.provenance = this.updateFieldProvenance(
-            inst.provenance,
-            'evidenceRequirements',
-            'AI_REGENERATED'
-          );
-          return { success: true };
+        if (candidates.length !== 1) {
+          return {
+            success: false,
+            reason: candidates.length === 0 ? 'Portfolio instrument not found' : 'Ambiguous portfolio instrument',
+          };
         }
-        break;
+        const inst: any = candidates[0];
+        inst.evidenceRequirements = proposed.evidenceRequirements;
+        inst.provenance = this.updateFieldProvenance(
+          inst.provenance,
+          'evidenceRequirements',
+          'AI_REGENERATED'
+        );
+        return { success: true };
       }
 
       case 'OBSERVATION_CONTENT': {
-        const inst: any = (pkg.instruments || []).find(
-          (i) => i.id === draft.targetId && i.type === 'OBSERVATION'
+        const candidates = (pkg.instruments || []).filter(
+          (i) => i.id === targetId && i.type === 'OBSERVATION'
         );
-        if (inst) {
-          (inst as any).aspects = proposed.aspects;
-          inst.provenance = this.updateFieldProvenance(inst.provenance, 'aspects', 'AI_REGENERATED');
-          if ('recordingScheme' in proposed) {
-            (inst as any).recordingScheme = proposed.recordingScheme;
-            inst.provenance = this.updateFieldProvenance(
-              inst.provenance,
-              'recordingScheme',
-              'AI_REGENERATED'
-            );
-          }
-          return { success: true };
+        if (candidates.length !== 1) {
+          return {
+            success: false,
+            reason: candidates.length === 0 ? 'Observation instrument not found' : 'Ambiguous observation instrument',
+          };
         }
-        break;
+        const inst: any = candidates[0];
+        inst.aspects = proposed.aspects;
+        inst.provenance = this.updateFieldProvenance(inst.provenance, 'aspects', 'AI_REGENERATED');
+        if ('recordingScheme' in proposed) {
+          inst.recordingScheme = proposed.recordingScheme;
+          inst.provenance = this.updateFieldProvenance(
+            inst.provenance,
+            'recordingScheme',
+            'AI_REGENERATED'
+          );
+        }
+        return { success: true };
       }
 
       case 'COVERAGE_UNIT': {
-        const bp: any = (pkg.blueprintItems || []).find((b) => b.coverageUnitId === draft.targetId);
-        if (bp) {
-          if ('assessmentIndicator' in proposed) {
-            bp.assessmentIndicator = proposed.assessmentIndicator;
-            bp.provenance = this.updateFieldProvenance(
-              bp.provenance,
-              'assessmentIndicator',
-              'AI_REGENERATED'
-            );
-          }
-          if ('materialOrContext' in proposed) {
-            bp.materialOrContext = proposed.materialOrContext;
-            bp.provenance = this.updateFieldProvenance(
-              bp.provenance,
-              'materialOrContext',
-              'AI_REGENERATED'
-            );
-          }
-          return { success: true };
+        const candidates = (pkg.blueprintItems || []).filter((b) => b.coverageUnitId === targetId);
+        if (candidates.length !== 1) {
+          return {
+            success: false,
+            reason: candidates.length === 0 ? 'Coverage unit blueprint item not found' : 'Ambiguous coverage unit blueprint items',
+          };
         }
-        break;
+        const bp: any = candidates[0];
+        if ('assessmentIndicator' in proposed) {
+          bp.assessmentIndicator = proposed.assessmentIndicator;
+          bp.provenance = this.updateFieldProvenance(
+            bp.provenance,
+            'assessmentIndicator',
+            'AI_REGENERATED'
+          );
+        }
+        if ('materialOrContext' in proposed) {
+          bp.materialOrContext = proposed.materialOrContext;
+          bp.provenance = this.updateFieldProvenance(
+            bp.provenance,
+            'materialOrContext',
+            'AI_REGENERATED'
+          );
+        }
+        return { success: true };
       }
 
       default:
