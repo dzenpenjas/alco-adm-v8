@@ -333,13 +333,38 @@ Kembalikan respon dalam format JSON sesuai schema:`;
 
 // 3. Endpoint: AI Generate ATP from TP
 app.post('/api/ai/generate-atp', async (req, res) => {
-  const { tps, cpGeneral, subject, grade, phase, semester, academicYear, totalHoursPerWeek = 5 } = req.body || {};
+  const { tps, cpGeneral, subject, grade, phase, semester, academicYear, curriculum, totalHoursPerWeek = 5 } = req.body || {};
 
+  // 1. Validate TP array prerequisite
   if (!tps || !Array.isArray(tps) || tps.length === 0) {
-    return res.status(400).json({ error: 'Daftar Tujuan Pembelajaran (TP) harus ada sebelum menyusun ATP' });
+    return res.status(400).json({ error: 'Daftar Tujuan Pembelajaran (TP) harus diisi dan tidak boleh kosong sebelum menyusun ATP.' });
   }
 
-  // If GEMINI_API_KEY is configured, try Gemini AI first
+  // 2. Validate Academic Context Prerequisites
+  if (!subject || typeof subject !== 'string' || subject.trim() === '') {
+    return res.status(400).json({ error: 'Mata pelajaran harus diisi sebelum menyusun ATP.' });
+  }
+
+  if (!grade || typeof grade !== 'string' || grade.trim() === '') {
+    return res.status(400).json({ error: 'Kelas/tingkat harus diisi sebelum menyusun ATP.' });
+  }
+
+  const isK13 = (curriculum && String(curriculum).toUpperCase().includes('K13')) || (curriculum && String(curriculum).toUpperCase().includes('2013'));
+  if (!isK13) {
+    if (!phase || typeof phase !== 'string' || phase.trim() === '') {
+      return res.status(400).json({ error: 'Fase harus diisi untuk Kurikulum Merdeka sebelum menyusun ATP.' });
+    }
+  }
+
+  if (!academicYear || typeof academicYear !== 'string' || academicYear.trim() === '') {
+    return res.status(400).json({ error: 'Tahun ajaran/akademik harus diisi sebelum menyusun ATP.' });
+  }
+
+  if (!semester || typeof semester !== 'string' || semester.trim() === '') {
+    return res.status(400).json({ error: 'Semester harus diisi sebelum menyusun ATP.' });
+  }
+
+  // If GEMINI_API_KEY is configured, try Gemini AI
   if (process.env.GEMINI_API_KEY) {
     try {
       const prompt = `Anda adalah spesialis penyusun Alur Tujuan Pembelajaran (ATP) dan perangkat pembelajaran Kurikulum Merdeka.

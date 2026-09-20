@@ -1295,7 +1295,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
                               {item.materialScope && <div className="text-[10px] text-slate-500 italic">Materi: {item.materialScope}</div>}
                             </td>
                             <td className="p-1.5 border border-slate-300 text-center font-bold">{item.jp || 4} JP</td>
-                            <td className="p-1.5 border border-slate-300 text-center">{academicSetting.semester || '1 (Ganjil)'}</td>
+                            <td className="p-1.5 border border-slate-300 text-center">{academicSetting.semester || '-'}</td>
                           </tr>
                         ))}
                         <tr className="bg-slate-100 font-bold">
