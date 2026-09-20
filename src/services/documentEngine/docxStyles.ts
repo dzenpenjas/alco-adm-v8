@@ -203,9 +203,10 @@ export function createTableDataCell(
 export function createSignoffBlock(
   school: SchoolData,
   profile: TeacherProfile,
-  isBlankMode: boolean = false
+  isBlankMode: boolean = false,
+  customDateString?: string
 ): (Paragraph | Table)[] {
-  const dateStr = formatOfficialDate(school);
+  const dateStr = customDateString || formatOfficialDate(school);
 
   const principalTitle = 'Kepala Sekolah';
   const teacherTitle = 'Guru Mata Pelajaran';

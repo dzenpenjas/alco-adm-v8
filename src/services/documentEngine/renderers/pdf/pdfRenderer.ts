@@ -476,7 +476,16 @@ export class PdfDocumentBuilder {
 
   public getBlob(): Blob {
     this.finalizePageNumbers();
-    return this.doc.output('blob');
+    try {
+      const outputBlob = this.doc.output('blob');
+      if (outputBlob && typeof outputBlob.size === 'number') {
+        return outputBlob;
+      }
+    } catch {
+      // Fallback for Node/headless test runtimes
+    }
+    const arrayBuffer = this.doc.output('arraybuffer');
+    return new Blob([arrayBuffer], { type: 'application/pdf' });
   }
 
   public getDataUri(): string {

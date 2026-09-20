@@ -25,6 +25,7 @@
     "test:audit9c4:ai-generator": "tsx scripts/testAuditNo9C4AIGeneratorRegression.ts",
     "test:audit9c5:validation": "tsx scripts/testAuditNo9C5AssessmentValidationRegression.ts",
     "test:audit9c6:regeneration": "tsx scripts/testAuditNo9C6AssessmentRegenerationRegression.ts",
+    "test:audit9c8:export": "tsx scripts/testAuditNo9C8DocumentExportRegression.ts",
     "test:regulatory2026": "tsx scripts/testAudit2026RegulatoryCompatibility.ts"
   },
   "dependencies": {

@@ -143,6 +143,12 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(null);
   const [localDocs, setLocalDocs] = useState<AppDocumentRecord[]>(documents);
 
+  const readyAssessmentPackages = (assessmentPackages || []).filter((p) => p.workflowStatus === 'SIAP');
+  const [selectedAssessmentPackageId, setSelectedAssessmentPackageId] = useState<string>(() => {
+    if (readyAssessmentPackages.length === 1) return readyAssessmentPackages[0].id;
+    return '';
+  });
+
   // Validation status
   const isProfileValid = !!(profile?.name && profile.name.trim().length > 0);
   const isSchoolValid = !!(school?.name && school.name.trim().length > 0);
@@ -187,6 +193,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
     learningPlans,
     assessmentPlans,
     assessmentPackages,
+    activeAssessmentPackageId: selectedAssessmentPackageId || (readyAssessmentPackages.length === 1 ? readyAssessmentPackages[0].id : undefined),
   };
 
   const getDocRecord = (type: DocumentType): AppDocumentRecord | undefined => {
@@ -1426,51 +1433,150 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             })()}
 
             {/* 5. ASESMEN PREVIEW */}
-            {activePreviewType === 'ASESMEN' && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <h5 className="font-bold text-slate-900 uppercase">Rubrik Kriteria Ketercapaian Tujuan Pembelajaran (KKTP)</h5>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[11px] border border-slate-300 border-collapse">
-                      <thead>
-                        <tr className="bg-blue-900 text-white font-semibold">
-                          <th className="p-1.5 border border-blue-800 text-center w-28">Kategori</th>
-                          <th className="p-1.5 border border-blue-800 text-center w-20">Interval</th>
-                          <th className="p-1.5 border border-blue-800">Kriteria Kualitatif</th>
-                          <th className="p-1.5 border border-blue-800">Tindak Lanjut</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="bg-rose-50/40">
-                          <td className="p-1.5 border border-slate-300 font-bold text-rose-800">Perlu Bimbingan</td>
-                          <td className="p-1.5 border border-slate-300 text-center">0 - 60%</td>
-                          <td className="p-1.5 border border-slate-300">Belum mencapai ketuntasan pemahaman esensial.</td>
-                          <td className="p-1.5 border border-slate-300">Remedial intensif awal konsep.</td>
-                        </tr>
-                        <tr className="bg-amber-50/40">
-                          <td className="p-1.5 border border-slate-300 font-bold text-amber-800">Cukup</td>
-                          <td className="p-1.5 border border-slate-300 text-center">61 - 70%</td>
-                          <td className="p-1.5 border border-slate-300">Memahami konsep dasar namun perlu penguatan penerapan.</td>
-                          <td className="p-1.5 border border-slate-300">Remedial pada indikator parsial.</td>
-                        </tr>
-                        <tr className="bg-emerald-50/40">
-                          <td className="p-1.5 border border-slate-300 font-bold text-emerald-800">Baik</td>
-                          <td className="p-1.5 border border-slate-300 text-center">71 - 85%</td>
-                          <td className="p-1.5 border border-slate-300">Mencapai seluruh tujuan pembelajaran dengan mandiri.</td>
-                          <td className="p-1.5 border border-slate-300">Apresiasi & lanjut materi berikutnya.</td>
-                        </tr>
-                        <tr className="bg-blue-50/40">
-                          <td className="p-1.5 border border-slate-300 font-bold text-blue-800">Sangat Baik</td>
-                          <td className="p-1.5 border border-slate-300 text-center">86 - 100%</td>
-                          <td className="p-1.5 border border-slate-300">Menguasai secara mendalam dan terampil menganalisis (HOTS).</td>
-                          <td className="p-1.5 border border-slate-300">Pengayaan & tutor sebaya.</td>
-                        </tr>
-                      </tbody>
-                    </table>
+            {activePreviewType === 'ASESMEN' && (() => {
+              const activePkg =
+                (assessmentPackages || []).find((p) => p.id === selectedAssessmentPackageId) ||
+                (readyAssessmentPackages.length === 1 ? readyAssessmentPackages[0] : undefined);
+
+              if (documentMode === 'blank') {
+                return (
+                  <div className="space-y-4">
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+                      <strong>Mode Format Kosong:</strong> Dokumen asesmen akan diekspor dengan format tabel kisi-kisi, lembar soal, dan rubrik kosong siap isi/tulis tangan.
+                    </div>
+                    <div className="space-y-2">
+                      <h5 className="font-bold text-slate-900 uppercase">I. Kisi-Kisi Asesmen Pembelajaran (Format Kosong)</h5>
+                      <table className="w-full text-left text-[11px] border border-slate-300 border-collapse">
+                        <thead>
+                          <tr className="bg-blue-900 text-white font-semibold">
+                            <th className="p-1.5 border border-blue-800 text-center w-10">No</th>
+                            <th className="p-1.5 border border-blue-800">Tujuan Pembelajaran</th>
+                            <th className="p-1.5 border border-blue-800">Indikator Asesmen</th>
+                            <th className="p-1.5 border border-blue-800">Materi</th>
+                            <th className="p-1.5 border border-blue-800">Bentuk</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[1, 2, 3, 4, 5].map((i) => (
+                            <tr key={i}>
+                              <td className="p-1.5 border border-slate-300 text-center">{i}</td>
+                              <td className="p-1.5 border border-slate-300 text-slate-400 italic">........................................</td>
+                              <td className="p-1.5 border border-slate-300 text-slate-400 italic">........................................</td>
+                              <td className="p-1.5 border border-slate-300 text-slate-400 italic">....................</td>
+                              <td className="p-1.5 border border-slate-300 text-slate-400 italic">....................</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
+                );
+              }
+
+              if (readyAssessmentPackages.length === 0) {
+                return (
+                  <div className="p-6 bg-amber-50 border border-amber-200 rounded-xl text-center space-y-3">
+                    <AlertCircle className="w-8 h-8 text-amber-600 mx-auto" />
+                    <h5 className="font-bold text-amber-900 text-sm">Belum Ada Perangkat Asesmen Berstatus SIAP</h5>
+                    <p className="text-xs text-amber-800 max-w-md mx-auto">
+                      Dokumen Asesmen hanya dapat diekspor dari Perangkat Asesmen yang telah tervalidasi dan dikonfirmasi berstatus <strong>SIAP</strong> oleh guru.
+                    </p>
+                    <button
+                      onClick={() => onBackToStep('assessment')}
+                      className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow inline-flex items-center gap-1.5"
+                    >
+                      Buka Tab Perangkat Asesmen <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-5">
+                  {readyAssessmentPackages.length > 1 && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold text-slate-700">Pilih Perangkat Asesmen SIAP:</span>
+                      <select
+                        value={selectedAssessmentPackageId}
+                        onChange={(e) => setSelectedAssessmentPackageId(e.target.value)}
+                        className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">-- Pilih Perangkat Asesmen --</option>
+                        {readyAssessmentPackages.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.title} (Revisi {p.revision || 1})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {activePkg ? (
+                    <div className="space-y-4">
+                      <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-lg flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-emerald-950 text-xs">{activePkg.title}</span>
+                            <span className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[10px] font-bold">SIAP</span>
+                          </div>
+                          <p className="text-[11px] text-emerald-800 mt-0.5">
+                            {activePkg.blueprintItems.length} Kisi-kisi • {activePkg.instruments.length} Instrumen • {activePkg.answerKeys.length} Kunci/Rubrik
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Kisi-kisi */}
+                      <div className="space-y-2">
+                        <h5 className="font-bold text-slate-900 uppercase text-xs">I. Kisi-Kisi Asesmen Pembelajaran</h5>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-[11px] border border-slate-300 border-collapse">
+                            <thead>
+                              <tr className="bg-blue-900 text-white font-semibold">
+                                <th className="p-1.5 border border-blue-800 text-center w-8">No</th>
+                                <th className="p-1.5 border border-blue-800">Tujuan Pembelajaran</th>
+                                <th className="p-1.5 border border-blue-800">Indikator Asesmen</th>
+                                <th className="p-1.5 border border-blue-800">Lingkup Materi</th>
+                                <th className="p-1.5 border border-blue-800">Bentuk Instrumen</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {activePkg.blueprintItems.map((bp, idx) => (
+                                <tr key={bp.id || idx}>
+                                  <td className="p-1.5 border border-slate-300 text-center font-medium">{idx + 1}</td>
+                                  <td className="p-1.5 border border-slate-300">{bp.objectiveRefId || '-'}</td>
+                                  <td className="p-1.5 border border-slate-300">{bp.assessmentIndicator}</td>
+                                  <td className="p-1.5 border border-slate-300">{bp.materialOrContext}</td>
+                                  <td className="p-1.5 border border-slate-300 capitalize">{bp.instrumentType.replace(/_/g, ' ')}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Instrumen Summary */}
+                      <div className="space-y-2">
+                        <h5 className="font-bold text-slate-900 uppercase text-xs">II. Daftar Instrumen Asesmen ({activePkg.instruments.length})</h5>
+                        <div className="space-y-2">
+                          {activePkg.instruments.map((inst, idx) => (
+                            <div key={inst.id || idx} className="p-2.5 bg-slate-50 border border-slate-200 rounded text-xs">
+                              <div className="font-bold text-slate-800">
+                                {idx + 1}. {inst.title} ({inst.type.replace(/_/g, ' ')})
+                              </div>
+                              <p className="text-[11px] text-slate-600 mt-0.5">{inst.instructions}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-slate-100 rounded-lg text-center text-xs text-slate-600">
+                      Silakan pilih salah satu Perangkat Asesmen di atas untuk melihat pratinjau.
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* 6. JURNAL PREVIEW */}
             {activePreviewType === 'JURNAL' && (

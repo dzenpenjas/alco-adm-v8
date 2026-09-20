@@ -23,6 +23,7 @@ import { PdfDocumentBuilder, buildPdfFromOptions } from './renderers/pdf/pdfRend
 import { PDF_THEME } from './renderers/pdf/pdfTheme';
 
 import { validateLearningPlan } from '../learningPlanService';
+import { checkAssessmentExportEligibility } from './assessmentExportService';
 
 export * from './types';
 export * from './snapshot';
@@ -30,6 +31,7 @@ export * from './docxStyles';
 export * from './renderers/pdf/pdfRenderer';
 export * from './renderers/pdf/pdfTheme';
 export * from './renderers/pdf/pdfDocGenerators';
+export * from './assessmentExportService';
 export * from './zipBundle';
 export {
   generateAnalisisCpTp,
@@ -337,14 +339,13 @@ export function validateDocumentRequirements(
         break;
       }
 
-      case 'ASESMEN':
-        if (tpCount === 0) {
-          missingFields.push('Tujuan Pembelajaran (TP) belum dirumuskan');
-        }
-        if (atpCount === 0) {
-          missingFields.push('Alur Tujuan Pembelajaran (ATP) belum disusun');
+      case 'ASESMEN': {
+        const eligibility = checkAssessmentExportEligibility(context);
+        if (!eligibility.eligible) {
+          missingFields.push(...eligibility.blockers);
         }
         break;
+      }
 
       case 'KKTP':
         if (tpCount === 0) {

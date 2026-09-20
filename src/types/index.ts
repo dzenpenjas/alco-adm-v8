@@ -1280,6 +1280,10 @@ export interface DocumentSnapshot {
   studentCount?: number;
   generatedAt: string;
   format?: 'docx' | 'pdf' | 'all';
+  documentDate?: string;
+  formattedDocumentDate?: string;
+  assessmentPackageId?: string;
+  assessmentPackageRevision?: number;
   sourceVersions?: {
     cpUpdatedAt?: string;
     tpUpdatedAt?: string;
@@ -1410,3 +1414,4 @@ export interface WorkflowStepInfo {
 export * from './assessmentGeneration';
 export * from './assessmentValidation';
 export * from './assessmentRegeneration';
+export * from './assessmentExport';

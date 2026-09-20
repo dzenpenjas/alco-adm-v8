@@ -10,12 +10,27 @@ import {
 } from './pdfRenderer';
 import { formatOfficialDate } from './pdfTheme';
 import { resolveEffectiveContext, createDocumentSnapshot } from '../../snapshot';
+import { exportAssessmentPdf } from '../../assessmentExportService';
 
 export async function generatePdfDocument(
   type: DocumentType,
   rawContext: DocumentGenerationContext
 ): Promise<{ blob: Blob; fileName: string; title: string; snapshot: DocumentSnapshot }> {
   const context = resolveEffectiveContext(rawContext);
+
+  if (type === 'ASESMEN') {
+    const result = await exportAssessmentPdf(context, {
+      documentMode: context.documentMode,
+      documentDate: context.documentDate,
+    });
+    return {
+      blob: result.blob,
+      fileName: result.fileName,
+      title: result.title,
+      snapshot: result.snapshot,
+    };
+  }
+
   const snapshot = context.snapshot || createDocumentSnapshot(context, 'pdf', context.documentMode);
   const { school, profile, academicSetting, cp, tp, atp, students, calendarDays, timeAllocations } = context;
   const isBlankMode = context.documentMode === 'blank';
@@ -486,59 +501,6 @@ export async function generatePdfDocument(
           { header: 'Tujuan Pembelajaran', dataKey: 'tp', width: 65 },
           { header: 'Pendekatan', dataKey: 'app', width: 30 },
           { header: 'Kriteria & Rubrik Ketercapaian', dataKey: 'crit', width: 60 },
-        ],
-        rows,
-      });
-      break;
-    }
-
-    case 'ASESMEN': {
-      title = 'Kisi-Kisi dan Instrumen Asesmen Pembelajaran';
-      subTitle = `${subject} — ${grade} — Semester ${semester}`;
-      fileName = `Instrumen_Asesmen_${cleanSubject}_${cleanGrade}.pdf`;
-
-      const assessments = context.assessments || [];
-      const rows = isBlankMode
-        ? Array.from({ length: 15 }, (_, idx) => [
-            idx + 1,
-            '..........................................................................................',
-            '....................',
-            '....................',
-            '..........',
-            '....................................................',
-          ])
-        : assessments.length > 0
-        ? assessments.map((a, idx) => {
-            const typeLabel =
-              a.type === 'formatif'
-                ? 'Formatif'
-                : a.type === 'sumatif_lingkup_materi'
-                ? 'Sumatif LM'
-                : 'Sumatif SAS';
-            return [
-              idx + 1,
-              a.title,
-              typeLabel,
-              a.description || 'Tes Tertulis / Observasi',
-              a.maxScore ? `${a.maxScore} Poin` : '100',
-              a.passingScore ? `KKM / Kriteria Minimum: ${a.passingScore}` : 'Pedoman Penskoran & Rubrik Performa',
-            ];
-          })
-        : [
-            [1, 'Asesmen Formatif 1: Unjuk Kerja', 'Formatif', 'Unjuk Kerja / Observasi', '100 Poin', 'Rubrik performa proses'],
-            [2, 'Asesmen Sumatif Lingkup Materi 1', 'Sumatif LM', 'Tes Tertulis', '100 Poin', 'Pilihan Ganda & Uraian'],
-            [3, 'Asesmen Sumatif Akhir Semester (SAS)', 'Sumatif SAS', 'Tes Tertulis & Portofolio', '100 Poin', 'Soal Standar Evaluasi'],
-          ];
-
-      sections.push({
-        type: 'table',
-        columns: [
-          { header: 'No', dataKey: 'no', width: 10, align: 'center' },
-          { header: 'Nama Asesmen', dataKey: 'name', width: 55 },
-          { header: 'Jenis', dataKey: 'type', width: 25, align: 'center' },
-          { header: 'Teknik / Bentuk', dataKey: 'tech', width: 35 },
-          { header: 'Skor Max', dataKey: 'weight', width: 20, align: 'center' },
-          { header: 'Pedoman Penskoran', dataKey: 'rubric', width: 45 },
         ],
         rows,
       });

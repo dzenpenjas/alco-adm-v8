@@ -60,6 +60,7 @@ export interface DocumentGenerationContext {
   assessmentPlans?: AssessmentPlan[];
   assessmentPackages?: AssessmentPackage[];
   activeAssessmentPackageId?: string;
+  documentDate?: string;
 }
 
 export type ZipExportFormat = 'pdf' | 'docx' | 'both';
@@ -87,7 +88,7 @@ export interface DocumentValidationResult {
   isValid: boolean;
   missingFields: string[];
   message?: string;
-  targetStep?: 'profile' | 'academic' | 'cp' | 'tp' | 'atp';
+  targetStep?: 'profile' | 'academic' | 'cp' | 'tp' | 'atp' | 'assessment';
 }
 
 export interface GeneratedDocumentResult {
